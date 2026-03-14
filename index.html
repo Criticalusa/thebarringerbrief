@@ -1,0 +1,1889 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<!--
+   ______                            __
+  / ____/___  ____ ___  ____  __  __/ /____  _____
+ / /   / __ \/ __ `__ \/ __ \/ / / / __/ _ \/ ___/
+/ /___/ /_/ / / / / / / /_/ / /_/ / /_/  __/ /
+\____/\____/_/ /_/ /_/ .___/\__,_/\__/\___/_/
+                    /_/
+        Created with Perplexity Computer
+        https://www.perplexity.ai/computer
+-->
+
+<!-- Perplexity Computer Attribution — SEO Meta Tags -->
+<meta name="generator" content="Perplexity Computer">
+<meta name="author" content="Perplexity Computer">
+<meta property="og:see_also" content="https://www.perplexity.ai/computer">
+<link rel="author" href="https://www.perplexity.ai/computer">
+
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Barringer Brief — Issue 001</title>
+
+<!-- Fonts: NYT uses Georgia/Cheltenham-style serif. Apple uses SF-adjacent sans. We use Playfair Display + Inter -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+/* ═══════════════════════════════════════════
+   DESIGN TOKENS — NYT × Apple
+   Black + White + Red. No warm sepia. Clean.
+═══════════════════════════════════════════ */
+:root {
+  /* Core palette */
+  --black:       #000000;
+  --ink:         #121212;
+  --ink-2:       #1A1A1A;
+  --ink-3:       #333333;
+  --gray-1:      #555555;
+  --gray-2:      #767676;
+  --gray-3:      #999999;
+  --gray-4:      #CCCCCC;
+  --gray-5:      #E5E5E5;
+  --gray-6:      #F2F2F2;
+  --gray-7:      #F8F8F8;
+  --white:       #FFFFFF;
+
+  /* Red — NYT masthead red, precise */
+  --red:         #CC0000;
+  --red-dark:    #990000;
+  --red-light:   #F5E6E6;
+
+  /* Layout */
+  --max-w:       900px;
+  --col-pad:     28px;
+
+  /* Type */
+  --serif:       'Playfair Display', Georgia, 'Times New Roman', serif;
+  --sans:        'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --mono:        'JetBrains Mono', 'SF Mono', 'Courier New', monospace;
+
+  /* Shadows — Apple-style layered depth */
+  --shadow-sm:   0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-md:   0 4px 12px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.04);
+  --shadow-lg:   0 8px 32px rgba(0,0,0,0.10), 0 4px 8px rgba(0,0,0,0.04);
+
+  /* Radius — Apple-style rounded */
+  --r-sm:        6px;
+  --r-md:        10px;
+  --r-lg:        14px;
+  --r-xl:        20px;
+}
+
+/* ── RESET ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; scroll-behavior: smooth; }
+
+body {
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.65;
+  color: var(--ink);
+  background: var(--white);
+}
+
+/* ── TYPOGRAPHY ── */
+h1, h2, h3 { font-family: var(--serif); line-height: 1.2; }
+h4, h5, h6 { font-family: var(--sans); line-height: 1.3; }
+
+p { color: var(--ink-3); }
+p + p { margin-top: 14px; }
+strong { font-weight: 600; color: var(--ink); }
+em { font-style: italic; }
+a { color: var(--red); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ── LAYOUT ── */
+.container {
+  max-width: var(--max-w);
+  margin: 0 auto;
+  padding: 0 var(--col-pad);
+}
+
+.section-spacer { margin-top: 56px; }
+.section-spacer-sm { margin-top: 36px; }
+
+/* ── SECTION HEADERS — NYT style ── */
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid var(--black);
+}
+
+.section-tag {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  background: var(--red);
+  color: var(--white);
+  padding: 3px 8px 3px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.section-tag.black { background: var(--black); }
+.section-tag.outline {
+  background: transparent;
+  color: var(--red);
+  border: 1.5px solid var(--red);
+}
+
+.section-title {
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gray-2);
+}
+
+/* ── ROW LABELS (inside content boxes) ── */
+.label {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  display: block;
+  margin-bottom: 6px;
+  margin-top: 22px;
+}
+.label:first-child { margin-top: 0; }
+.label.red { color: var(--red); }
+.label.gray { color: var(--gray-2); }
+.label.white { color: rgba(255,255,255,0.55); }
+
+/* ═══════════════════════════════════════════
+   TOP NAV BAR — Apple menu bar energy
+═══════════════════════════════════════════ */
+.topbar {
+  background: var(--black);
+  height: 44px;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.topbar-inner {
+  max-width: var(--max-w);
+  margin: 0 auto;
+  padding: 0 var(--col-pad);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.topbar-wordmark {
+  font-family: var(--serif);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--white);
+  letter-spacing: 0.02em;
+}
+
+.topbar-meta {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: rgba(255,255,255,0.5);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.topbar-issue {
+  font-family: var(--mono);
+  font-size: 10px;
+  background: var(--red);
+  color: var(--white);
+  padding: 2px 8px;
+  border-radius: 3px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* ═══════════════════════════════════════════
+   TICKER STRIP
+═══════════════════════════════════════════ */
+.ticker-strip {
+  background: var(--gray-7);
+  border-bottom: 1px solid var(--gray-5);
+  overflow: hidden;
+  height: 34px;
+  display: flex;
+  align-items: center;
+}
+
+.ticker-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--white);
+  background: var(--red);
+  padding: 0 12px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  border-right: none;
+}
+
+.ticker-track {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+.ticker-scroll {
+  display: flex;
+  white-space: nowrap;
+  animation: ticker-run 70s linear infinite;
+  align-items: center;
+  height: 34px;
+}
+
+.ticker-scroll:hover { animation-play-state: paused; }
+
+.ticker-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 24px 0 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+.ticker-item .dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--gray-4);
+  flex-shrink: 0;
+  margin-right: 18px;
+}
+
+.ticker-item.alert .dot { background: var(--red); }
+.ticker-item.up { color: #16a34a; }
+.ticker-item.down { color: var(--red); }
+.ticker-item .change { font-weight: 600; }
+
+@keyframes ticker-run {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+/* ═══════════════════════════════════════════
+   MASTHEAD — Full NYT masthead treatment
+═══════════════════════════════════════════ */
+.masthead {
+  background: var(--white);
+  border-bottom: 1px solid var(--gray-5);
+  padding: 48px var(--col-pad) 36px;
+  text-align: center;
+  position: relative;
+}
+
+.masthead::before {
+  content: '';
+  display: block;
+  width: 100%;
+  height: 3px;
+  background: var(--black);
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.masthead-logotype {
+  font-family: var(--serif);
+  font-size: clamp(40px, 8vw, 68px);
+  font-weight: 900;
+  color: var(--black);
+  letter-spacing: -1px;
+  line-height: 1.0;
+  display: block;
+}
+
+.masthead-tagline {
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--gray-2);
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  margin-top: 12px;
+  display: block;
+}
+
+.masthead-rule {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 20px auto;
+  max-width: 480px;
+}
+.masthead-rule::before,
+.masthead-rule::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--gray-4);
+}
+.masthead-rule-center {
+  width: 6px;
+  height: 6px;
+  background: var(--red);
+  transform: rotate(45deg);
+  flex-shrink: 0;
+}
+
+.masthead-greeting {
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--gray-2);
+  letter-spacing: 0.06em;
+  display: block;
+}
+
+.masthead-date {
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--gray-3);
+  margin-top: 2px;
+  display: block;
+}
+
+/* ═══════════════════════════════════════════
+   LIVE DATA ROW — Weather + Markets
+   Apple-style cards in a horizontal strip
+═══════════════════════════════════════════ */
+.data-strip {
+  background: var(--gray-7);
+  border-bottom: 1px solid var(--gray-5);
+  padding: 20px var(--col-pad);
+}
+
+.data-strip-inner {
+  max-width: var(--max-w);
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1.2fr 2fr 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+/* Weather Card */
+.wx-card {
+  background: var(--white);
+  border-radius: var(--r-md);
+  border: 1px solid var(--gray-5);
+  padding: 16px 18px;
+  box-shadow: var(--shadow-sm);
+}
+
+.wx-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.wx-location {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--gray-2);
+}
+
+.wx-live-badge {
+  font-family: var(--mono);
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--white);
+  background: #16a34a;
+  padding: 2px 6px;
+  border-radius: 99px;
+}
+
+.wx-live-badge.loading { background: var(--gray-3); }
+
+.wx-main {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.wx-temp {
+  font-family: var(--serif);
+  font-size: 42px;
+  font-weight: 700;
+  color: var(--black);
+  line-height: 1;
+}
+
+.wx-temp sup {
+  font-size: 18px;
+  font-family: var(--sans);
+  font-weight: 400;
+  color: var(--gray-2);
+  vertical-align: super;
+  font-size-adjust: none;
+  position: relative;
+  top: -6px;
+}
+
+.wx-desc-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 4px;
+}
+
+.wx-desc {
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-3);
+}
+
+.wx-feels {
+  font-family: var(--sans);
+  font-size: 11px;
+  color: var(--gray-2);
+}
+
+.wx-details {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 8px;
+  border-top: 1px solid var(--gray-5);
+  padding-top: 10px;
+}
+
+.wx-detail-item {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--gray-2);
+  display: flex;
+  justify-content: space-between;
+}
+
+.wx-detail-item span:last-child {
+  color: var(--ink-3);
+  font-weight: 600;
+}
+
+/* Markets Card */
+.markets-card {
+  background: var(--white);
+  border-radius: var(--r-md);
+  border: 1px solid var(--gray-5);
+  padding: 16px 18px;
+  box-shadow: var(--shadow-sm);
+}
+
+.markets-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.markets-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--gray-2);
+}
+
+.markets-badge {
+  font-family: var(--mono);
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--white);
+  background: var(--red);
+  padding: 2px 6px;
+  border-radius: 99px;
+}
+
+.markets-badge.bull { background: #16a34a; }
+
+.markets-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 10px;
+}
+
+.market-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.market-item-ticker {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--gray-2);
+  letter-spacing: 0.06em;
+}
+
+.market-item-price {
+  font-family: var(--sans);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--black);
+  letter-spacing: -0.02em;
+}
+
+.market-item-change {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.market-item-change.up { color: #16a34a; }
+.market-item-change.down { color: var(--red); }
+
+/* Aviation METAR Card */
+.metar-card {
+  background: var(--black);
+  border-radius: var(--r-md);
+  padding: 16px 18px;
+  box-shadow: var(--shadow-md);
+}
+
+.metar-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.metar-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.45);
+}
+
+.metar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.metar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.metar-row:last-child { border-bottom: none; padding-bottom: 0; }
+
+.metar-apt {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--white);
+  letter-spacing: 0.08em;
+}
+
+.metar-cond {
+  font-family: var(--sans);
+  font-size: 11px;
+  color: rgba(255,255,255,0.6);
+}
+
+.metar-cat {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 4px;
+  letter-spacing: 0.08em;
+}
+
+.metar-cat.VFR { background: rgba(22,163,74,0.2); color: #4ade80; }
+.metar-cat.MVFR { background: rgba(59,130,246,0.2); color: #93c5fd; }
+.metar-cat.IFR { background: rgba(204,0,0,0.2); color: #f87171; }
+.metar-cat.LIFR { background: rgba(168,85,247,0.2); color: #d8b4fe; }
+
+/* ═══════════════════════════════════════════
+   CONTENT SECTIONS
+═══════════════════════════════════════════ */
+
+/* THE SIGNAL — dark hero card */
+.signal-card {
+  background: var(--black);
+  border-radius: var(--r-lg);
+  padding: 40px 44px;
+  color: var(--white);
+  box-shadow: var(--shadow-lg);
+}
+
+.signal-card .deck {
+  font-family: var(--serif);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--white);
+  line-height: 1.3;
+  margin-bottom: 10px;
+}
+
+.signal-card .subdeck {
+  font-family: var(--sans);
+  font-size: 14px;
+  color: rgba(255,255,255,0.55);
+  font-style: italic;
+  line-height: 1.6;
+  margin-bottom: 32px;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+  padding-bottom: 24px;
+}
+
+.signal-card .label { color: var(--red); margin-top: 24px; }
+.signal-card .label:first-child { margin-top: 0; }
+.signal-card p { color: rgba(255,255,255,0.82); font-size: 14px; line-height: 1.75; }
+.signal-card strong { color: var(--white); }
+.signal-card em { color: rgba(255,255,255,0.9); }
+
+.signal-row { margin-bottom: 20px; }
+.signal-row:last-child { margin-bottom: 0; }
+
+/* SYSTEM BREAKDOWN — red left border, clean white */
+.system-card {
+  background: var(--white);
+  border: 1px solid var(--gray-5);
+  border-left: 4px solid var(--red);
+  border-radius: 0 var(--r-md) var(--r-md) 0;
+  padding: 36px 40px;
+  box-shadow: var(--shadow-sm);
+}
+
+.system-card .deck {
+  font-family: var(--serif);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--black);
+  line-height: 1.3;
+  margin-bottom: 8px;
+}
+
+.system-card .subdeck {
+  font-size: 13px;
+  color: var(--gray-2);
+  font-style: italic;
+  line-height: 1.6;
+  margin-bottom: 24px;
+}
+
+.system-card .label { color: var(--red); }
+.system-card p { font-size: 14px; line-height: 1.75; }
+
+.system-row { margin-bottom: 18px; }
+.system-row:last-child { margin-bottom: 0; }
+
+/* OPERATOR INSIGHT — Apple card, amber top bar */
+.operator-card {
+  background: var(--white);
+  border: 1px solid var(--gray-5);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-md);
+}
+
+.operator-card-bar {
+  background: #F5A623;
+  height: 4px;
+  width: 100%;
+}
+
+.operator-card-body {
+  padding: 32px 36px;
+}
+
+.operator-card .deck {
+  font-family: var(--serif);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--black);
+  line-height: 1.3;
+  margin-bottom: 24px;
+}
+
+.operator-card .label { color: #D4800A; }
+.operator-card p { font-size: 14px; line-height: 1.75; }
+
+.operator-row { margin-bottom: 18px; }
+.operator-row:last-child { margin-bottom: 0; }
+
+/* MEDICAL FRONTIER — deep navy with subtle blue accent */
+.medical-card {
+  background: #0A1628;
+  border-radius: var(--r-lg);
+  padding: 40px 44px;
+  color: var(--white);
+  box-shadow: var(--shadow-lg);
+  border: 1px solid rgba(59,130,246,0.25);
+}
+
+.medical-card .deck {
+  font-family: var(--serif);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--white);
+  line-height: 1.3;
+  margin-bottom: 8px;
+}
+
+.medical-card .subdeck {
+  font-size: 13px;
+  color: rgba(255,255,255,0.45);
+  font-style: italic;
+  line-height: 1.6;
+  margin-bottom: 28px;
+}
+
+.medical-card .label { color: #60a5fa; }
+.medical-card p { color: rgba(255,255,255,0.80); font-size: 14px; line-height: 1.75; }
+.medical-card strong { color: var(--white); }
+.medical-card em { color: rgba(255,255,255,0.9); }
+
+.medical-row { margin-bottom: 18px; }
+.medical-row:last-child { margin-bottom: 0; }
+
+/* POWER MAP — black with red accents, table layout */
+.power-card {
+  background: var(--black);
+  border-radius: var(--r-lg);
+  padding: 40px 44px;
+  color: var(--white);
+  box-shadow: var(--shadow-lg);
+}
+
+.power-card .deck {
+  font-family: var(--serif);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--white);
+  line-height: 1.3;
+  margin-bottom: 28px;
+}
+
+.power-card .label { color: var(--red); margin-top: 24px; }
+.power-card .label:first-child { margin-top: 0; }
+.power-card p { color: rgba(255,255,255,0.80); font-size: 14px; line-height: 1.75; }
+.power-card strong { color: var(--white); }
+
+.power-row { margin-bottom: 20px; }
+.power-row:last-child { margin-bottom: 0; }
+
+/* MENTAL MODEL — clean white, dashed border */
+.mental-card {
+  background: var(--gray-7);
+  border: 1.5px dashed var(--gray-4);
+  border-radius: var(--r-lg);
+  padding: 36px 40px;
+}
+
+.mental-card .deck {
+  font-family: var(--serif);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--black);
+  line-height: 1.3;
+  margin-bottom: 24px;
+}
+
+.mental-card .label { color: var(--gray-1); }
+.mental-card p { font-size: 14px; line-height: 1.75; }
+
+.mental-row { margin-bottom: 18px; }
+.mental-row:last-child { margin-bottom: 0; }
+
+/* BUILD LOG — green left stripe */
+.build-card {
+  background: var(--white);
+  border: 1px solid var(--gray-5);
+  border-left: 4px solid #16a34a;
+  border-radius: 0 var(--r-md) var(--r-md) 0;
+  padding: 36px 40px;
+  box-shadow: var(--shadow-sm);
+}
+
+.build-card .deck {
+  font-family: var(--serif);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--black);
+  line-height: 1.3;
+  margin-bottom: 8px;
+}
+
+.build-card .subdeck {
+  font-size: 13px;
+  color: var(--gray-2);
+  font-style: italic;
+  line-height: 1.6;
+  margin-bottom: 24px;
+}
+
+.build-card .label { color: #16a34a; }
+.build-card p { font-size: 14px; line-height: 1.75; }
+
+.build-row { margin-bottom: 18px; }
+.build-row:last-child { margin-bottom: 0; }
+
+/* ═══════════════════════════════════════════
+   MARKET OUTLOOK TABLE
+═══════════════════════════════════════════ */
+.outlook-table-wrap {
+  border: 1px solid var(--gray-5);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 20px;
+}
+
+.outlook-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.outlook-table thead tr {
+  background: var(--black);
+}
+
+.outlook-table th {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.55);
+  text-align: left;
+  padding: 11px 16px;
+  white-space: nowrap;
+}
+
+.outlook-table td {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--gray-5);
+  vertical-align: top;
+  line-height: 1.55;
+  color: var(--ink-3);
+}
+
+.outlook-table tbody tr:last-child td { border-bottom: none; }
+.outlook-table tbody tr:nth-child(even) td { background: var(--gray-7); }
+.outlook-table tbody tr:nth-child(odd) td { background: var(--white); }
+
+.outlook-table td:first-child {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.outlook-table td:nth-child(2) {
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.outlook-bullets {
+  list-style: none;
+  margin-top: 4px;
+}
+
+.outlook-bullets li {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--gray-5);
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--ink-3);
+}
+
+.outlook-bullets li:last-child { border-bottom: none; }
+
+/* ═══════════════════════════════════════════
+   AVIATION SECTION
+═══════════════════════════════════════════ */
+.aviation-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.avi-card {
+  background: var(--white);
+  border: 1px solid var(--gray-5);
+  border-radius: var(--r-md);
+  padding: 24px 26px;
+  box-shadow: var(--shadow-sm);
+}
+
+.avi-card h3 {
+  font-family: var(--serif);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--black);
+  margin-bottom: 14px;
+  line-height: 1.3;
+}
+
+.avi-card p {
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--ink-3);
+  margin-bottom: 10px;
+}
+
+.wx-row {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--gray-5);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ink-3);
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.wx-row:last-of-type { border-bottom: none; }
+.wx-row-day {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--gray-2);
+  letter-spacing: 0.06em;
+  flex-shrink: 0;
+  min-width: 64px;
+  text-transform: uppercase;
+}
+
+.nogo { color: var(--red); font-weight: 600; }
+.go { color: #16a34a; font-weight: 600; }
+.caution { color: #D4800A; font-weight: 600; }
+
+.amber-tip {
+  background: #FFF9EC;
+  border: 1px solid #F5A623;
+  border-radius: var(--r-sm);
+  padding: 12px 14px;
+  margin-top: 14px;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--ink-3);
+}
+
+.code-tip {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--gray-2);
+  margin-top: 10px;
+  line-height: 1.65;
+  padding: 10px 12px;
+  background: var(--gray-7);
+  border-radius: var(--r-sm);
+  border: 1px solid var(--gray-5);
+}
+
+/* ═══════════════════════════════════════════
+   FOOTER
+═══════════════════════════════════════════ */
+.site-footer {
+  background: var(--black);
+  padding: 48px var(--col-pad);
+  margin-top: 64px;
+}
+
+.footer-inner {
+  max-width: var(--max-w);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.footer-wordmark {
+  font-family: var(--serif);
+  font-size: 24px;
+  font-weight: 900;
+  color: var(--white);
+  letter-spacing: -0.5px;
+}
+
+.footer-tagline {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.35);
+}
+
+.footer-rule {
+  width: 32px;
+  height: 1px;
+  background: var(--red);
+  margin: 4px auto;
+}
+
+.footer-issue {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: rgba(255,255,255,0.25);
+  letter-spacing: 0.08em;
+}
+
+.footer-credit a {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: rgba(255,255,255,0.18);
+  text-decoration: none;
+  letter-spacing: 0.08em;
+}
+
+.footer-credit a:hover { color: rgba(255,255,255,0.4); }
+
+/* ═══════════════════════════════════════════
+   RESPONSIVE
+═══════════════════════════════════════════ */
+@media (max-width: 720px) {
+  :root { --col-pad: 16px; }
+
+  .topbar-meta { display: none; }
+  .masthead-logotype { font-size: 36px; }
+  .masthead { padding: 32px 16px 24px; }
+
+  .data-strip-inner {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .markets-grid { grid-template-columns: 1fr 1fr; }
+
+  .signal-card,
+  .medical-card,
+  .power-card { padding: 28px 22px; }
+
+  .system-card,
+  .build-card { padding: 28px 22px; }
+
+  .operator-card-body { padding: 24px 22px; }
+
+  .aviation-grid { grid-template-columns: 1fr; }
+
+  .outlook-table { font-size: 12px; }
+  .outlook-table td, .outlook-table th { padding: 10px 10px; }
+
+  .signal-card .deck { font-size: 19px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ═══════════ STICKY TOPBAR ═══════════ -->
+<nav class="topbar" role="banner">
+  <div class="topbar-inner">
+    <span class="topbar-wordmark">The Barringer Brief</span>
+    <span class="topbar-meta" id="topbar-time">Saturday · March 14, 2026</span>
+    <span class="topbar-issue">Issue 001</span>
+  </div>
+</nav>
+
+<!-- ═══════════ LIVE TICKER ═══════════ -->
+<div class="ticker-strip" aria-hidden="true">
+  <div class="ticker-label">Live</div>
+  <div class="ticker-track">
+    <div class="ticker-scroll" id="ticker-scroll">
+      <!-- Populated by JS -->
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ MASTHEAD ═══════════ -->
+<header class="masthead">
+  <span class="masthead-logotype">The Barringer Brief</span>
+  <span class="masthead-tagline">Intelligence &nbsp;·&nbsp; Systems &nbsp;·&nbsp; Medicine &nbsp;·&nbsp; Power</span>
+  <div class="masthead-rule"><div class="masthead-rule-center"></div></div>
+  <span class="masthead-greeting">Good Morning, Jadie</span>
+  <span class="masthead-date" id="masthead-date">Saturday, March 14, 2026</span>
+</header>
+
+<!-- ═══════════ LIVE DATA STRIP ═══════════ -->
+<div class="data-strip">
+  <div class="data-strip-inner">
+
+    <!-- WEATHER CARD -->
+    <div class="wx-card">
+      <div class="wx-card-header">
+        <span class="wx-location">Weston, FL</span>
+        <span class="wx-live-badge" id="wx-badge">Loading...</span>
+      </div>
+      <div class="wx-main">
+        <div class="wx-temp" id="wx-temp">--<sup>°F</sup></div>
+        <div class="wx-desc-block">
+          <span class="wx-desc" id="wx-desc">--</span>
+          <span class="wx-feels" id="wx-feels">Feels like --°F</span>
+        </div>
+      </div>
+      <div class="wx-details">
+        <div class="wx-detail-item"><span>Wind</span><span id="wx-wind">--</span></div>
+        <div class="wx-detail-item"><span>Humidity</span><span id="wx-humid">--</span></div>
+        <div class="wx-detail-item"><span>Visibility</span><span id="wx-vis">--</span></div>
+        <div class="wx-detail-item"><span>UV Index</span><span id="wx-uv">--</span></div>
+        <div class="wx-detail-item"><span>High</span><span id="wx-high">--</span></div>
+        <div class="wx-detail-item"><span>Low</span><span id="wx-low">--</span></div>
+      </div>
+    </div>
+
+    <!-- MARKETS CARD -->
+    <div class="markets-card">
+      <div class="markets-card-header">
+        <span class="markets-label">Markets · After Hours</span>
+        <span class="markets-badge" id="markets-badge">BEARISH</span>
+      </div>
+      <div class="markets-grid" id="markets-grid">
+        <!-- Populated by JS -->
+        <div class="market-item">
+          <span class="market-item-ticker">SPY</span>
+          <span class="market-item-price">$662.29</span>
+          <span class="market-item-change down">-0.57%</span>
+        </div>
+        <div class="market-item">
+          <span class="market-item-ticker">QQQ</span>
+          <span class="market-item-price">$593.72</span>
+          <span class="market-item-change down">-0.59%</span>
+        </div>
+        <div class="market-item">
+          <span class="market-item-ticker">NVDA</span>
+          <span class="market-item-price">$180.25</span>
+          <span class="market-item-change down">-1.59%</span>
+        </div>
+        <div class="market-item">
+          <span class="market-item-ticker">AAPL</span>
+          <span class="market-item-price">$250.12</span>
+          <span class="market-item-change down">-2.21%</span>
+        </div>
+        <div class="market-item">
+          <span class="market-item-ticker">BTC</span>
+          <span class="market-item-price">$70,611</span>
+          <span class="market-item-change down">-0.47%</span>
+        </div>
+        <div class="market-item">
+          <span class="market-item-ticker">OIL</span>
+          <span class="market-item-price">$98.71</span>
+          <span class="market-item-change up">+3.11%</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- METAR CARD -->
+    <div class="metar-card">
+      <div class="metar-card-header">
+        <span class="metar-label">Live METAR</span>
+      </div>
+      <div class="metar-list">
+        <div class="metar-row">
+          <div>
+            <div class="metar-apt">KFLL</div>
+            <div class="metar-cond">27°F · FEW028 · 5kt</div>
+          </div>
+          <span class="metar-cat VFR">VFR</span>
+        </div>
+        <div class="metar-row">
+          <div>
+            <div class="metar-apt">KFXE</div>
+            <div class="metar-cond">26°C · CLR · 4kt</div>
+          </div>
+          <span class="metar-cat VFR">VFR</span>
+        </div>
+        <div class="metar-row">
+          <div>
+            <div class="metar-apt">KPMP</div>
+            <div class="metar-cond">26°C · CLR · 4kt</div>
+          </div>
+          <span class="metar-cat VFR">VFR</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ═══════════ YOUR WEEK — OUTLOOK CALENDAR ═══════════ -->
+<div class="section-spacer"></div>
+<div class="container">
+  <div class="section-header">
+    <span class="section-tag black">Your Week</span>
+    <span class="section-title">Outlook Calendar · March 14–21, 2026</span>
+  </div>
+
+  <div id="calendar-section" style="border:1px solid var(--gray-5); border-radius:var(--r-md); overflow:hidden; box-shadow:var(--shadow-sm);">
+
+    <!-- Static data from Outlook (live-fetched at brief generation time) -->
+    <div style="background:var(--black); padding:10px 20px; display:flex; align-items:center; justify-content:space-between;">
+      <span style="font-family:var(--mono); font-size:9px; font-weight:600; letter-spacing:0.14em; text-transform:uppercase; color:rgba(255,255,255,0.45);">Connected · Outlook Calendar</span>
+      <span style="font-family:var(--mono); font-size:8px; font-weight:600; letter-spacing:0.1em; text-transform:uppercase; color:var(--white); background:#0078d4; padding:2px 8px; border-radius:99px;">Live</span>
+    </div>
+
+    <!-- Event: Tachina Owens Second Interview -->
+    <div style="display:flex; align-items:stretch; border-bottom:1px solid var(--gray-5);">
+      <div style="width:4px; background:#0078d4; flex-shrink:0;"></div>
+      <div style="padding:16px 20px; flex:1;">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+          <span style="font-family:var(--serif); font-size:15px; font-weight:700; color:var(--black);">Tachina Owens — Second Interview</span>
+          <span style="font-family:var(--mono); font-size:9px; font-weight:600; background:var(--gray-6); border:1px solid var(--gray-5); padding:2px 8px; border-radius:4px; color:var(--gray-1); white-space:nowrap;">TUE MAR 17 · 11:30 AM EDT</span>
+        </div>
+        <div style="font-family:var(--sans); font-size:12px; color:var(--gray-2); display:flex; align-items:center; gap:16px; flex-wrap:wrap;">
+          <span>📍 Microsoft Teams</span>
+          <span>⏱ 30 min</span>
+          <span>👥 Roberto Cabanas · Juan Ramirez · Phillipp Mellon · Tachina Owens</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Empty state hint -->
+    <div style="padding:14px 20px; background:var(--gray-7);">
+      <span style="font-family:var(--mono); font-size:10px; color:var(--gray-3); letter-spacing:0.06em;">No other events scheduled this week · Outlook synced March 14, 2026 at 12:08 PM EDT</span>
+    </div>
+
+  </div>
+</div>
+
+<!-- ═══════════ SECTION 1 — THE SIGNAL ═══════════ -->
+<div class="section-spacer"></div>
+<div class="container">
+  <div class="section-header">
+    <span class="section-tag">The Signal</span>
+    <span class="section-title">Today's Lead Story — Structural Analysis</span>
+  </div>
+
+  <div class="signal-card">
+    <div class="deck">The Epstein Files Weren't Released. They Were Managed.</div>
+    <div class="subdeck">The DOJ called them "duplicative." Journalists called that a lie. Here's the system underneath the story.</div>
+
+    <div class="signal-row">
+      <span class="label red">What Happened</span>
+      <p>On March 5–6, the DOJ released three previously withheld FBI "302" documents from the Epstein files — interview summaries from 2019 with a woman who alleges she was sexually assaulted by both Epstein and Trump between ages 13–15. They were initially classified as "duplicative." Journalists disproved this in hours by cross-referencing document indexes. At least <strong>37 pages remain missing.</strong> The House Oversight Committee voted — bipartisan — to subpoena AG Pam Bondi under oath.</p>
+    </div>
+
+    <div class="signal-row">
+      <span class="label red">Why It Matters</span>
+      <p>This isn't primarily a Trump story. It's a document-management story. The question isn't "did this happen" — it's <em>why does the world's most watched document release still have 37 missing pages?</em> Bipartisan subpoenas on document releases are rare. That tells you something about the institutional anxiety around what's still in those files.</p>
+    </div>
+
+    <div class="signal-row">
+      <span class="label red">The System Underneath It</span>
+      <p>Document declassification is not neutral. It is a power tool. The executive branch controls timing, redaction, and sequencing. Congress passes disclosure laws. Agencies interpret them. Journalists audit the gaps. That cycle — law → interpretation → audit — is the only accountability mechanism. The Epstein Files Act was meant to force transparency. What we're watching is the government's interpretive immune system working against it.</p>
+    </div>
+
+    <div class="signal-row">
+      <span class="label red">Who Benefits / Who Loses</span>
+      <p>Anyone whose name doesn't appear. The system benefits from slow disclosure — each news cycle compresses the attention window. Notably: the Iran war broke 72 hours after the files story gained momentum. Rep. Thomas Massie publicly noted that Google searches for "Epstein files" dropped sharply after the conflict began. The losers: survivors waiting for accountability, journalists building the record, and institutional trust broadly.</p>
+    </div>
+
+    <div class="signal-row">
+      <span class="label red">What to Watch Next</span>
+      <p>Will AG Bondi comply with the subpoena or assert executive privilege? Watch for: a legal challenge (likely), a quiet supplemental release of partial documents (probable), and another document gap uncovered by investigative journalists (near certain). Miami Herald's Julie K. Brown remains the primary source to follow.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ SECTION 2 — SYSTEM BREAKDOWN ═══════════ -->
+<div class="section-spacer"></div>
+<div class="container">
+  <div class="section-header">
+    <span class="section-tag">System Breakdown</span>
+    <span class="section-title">Incentives · Leverage Points · Unintended Consequences</span>
+  </div>
+
+  <div class="system-card">
+    <div class="deck">How Organ Procurement Actually Works — And Why the System Is Structurally Broken</div>
+    <div class="subdeck">49,065 transplants in 2025 was a record. But the system left tens of thousands of usable organs in the trash. Here's why.</div>
+
+    <div class="system-row">
+      <span class="label red">The System</span>
+      <p>The U.S. organ procurement system runs through 55 regional OPOs (Organ Procurement Organizations) — nonprofits that hold geographic monopolies over deceased donor organ recovery. Each OPO covers a defined service area. Hospitals notify OPOs of potential donors. OPOs evaluate, consent families, coordinate recovery, and match organs through UNOS. Every kidney, liver, heart, and lung that gets transplanted flows through this network.</p>
+    </div>
+
+    <div class="system-row">
+      <span class="label red">The Incentives</span>
+      <p>Here's the structural problem: OPOs historically reported their own denominators — meaning they could define how many potential donors existed in their region. The reformed CMS metrics (2022+) use death certificate data — an external denominator — making manipulation harder. But geographic monopoly status remains. In 2025, organ donations <em>declined</em> for the first time in 14 years — partly because high-profile cases where patients were prepped for recovery while still showing signs of life caused ~20,000 people to remove themselves from donor registries.</p>
+    </div>
+
+    <div class="system-row">
+      <span class="label red">The Leverage Points</span>
+      <p><strong>1. DCD + NRP normalization:</strong> Donation after circulatory death (now 49% of all donors, up from 2% in 2000) with normothermic regional perfusion is the single biggest technical leverage point. It expands the recoverable pool from complex donors.</p>
+      <p><strong>2. CMS accountability teeth:</strong> The new Conditions for Coverage rules (final rule expected late 2026) will allow decertification of Tier 2/3 OPOs. First real accountability mechanism in decades.</p>
+      <p><strong>3. Trust repair:</strong> The March 2026 CMS guidance — banning OPO coercion of families — directly addresses the trust erosion that drove 20,000 donor registry removals. Trust is an upstream leverage point that no technology can replace.</p>
+    </div>
+
+    <div class="system-row">
+      <span class="label red">Unintended Consequences</span>
+      <p>The push for volume created perverse pressure. More transplants = more performance credit = more federal contract security. This incentivized some OPOs to rush families, blur ethical lines around DCD timing, and place organs with less rigorous allocation adherence. The lesson: <em>any system where the actor controls the denominator will optimize for the denominator, not the outcome.</em></p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ SECTION 3 — OPERATOR INSIGHT ═══════════ -->
+<div class="section-spacer"></div>
+<div class="container">
+  <div class="section-header">
+    <span class="section-tag" style="background:#D4800A;">Operator Insight</span>
+    <span class="section-title">The Principle · The Example · How to Apply It</span>
+  </div>
+
+  <div class="operator-card">
+    <div class="operator-card-bar"></div>
+    <div class="operator-card-body">
+      <div class="deck">Why Exceptional People Systematically Underestimate Themselves</div>
+
+      <div class="operator-row">
+        <span class="label" style="color:#D4800A;">The Principle</span>
+        <p>Intelligence agencies and elite talent scouts have known for decades: the most capable candidates are disproportionately likely to self-select out. High-competence people tend to measure themselves against a higher internal standard than average people do. Average performers compare themselves to the crowd and conclude they're above it. Exceptional performers compare themselves to the ideal and find themselves lacking.</p>
+      </div>
+
+      <div class="operator-row">
+        <span class="label" style="color:#D4800A;">The Example</span>
+        <p>The CIA calls this the "quiet room problem" — the most insightful people in a debrief are often the ones who said the least. They were running a more rigorous internal filter: <em>"Is this actually useful, or is it just filling silence?"</em> Meanwhile, confident but lower-signal contributors dominated the room. This pattern shows up in medical training (residents who catch the most errors often express the most uncertainty), engineering (10x engineers who think their code "could be better"), and entrepreneurship (founders most worth backing are often most uncertain about whether they should try at all).</p>
+      </div>
+
+      <div class="operator-row">
+        <span class="label" style="color:#D4800A;">How to Apply It Today</span>
+        <p>When you feel underqualified — for a conversation, a pitch, a role, a risk — ask: <em>Am I measuring myself against the crowd, or against an ideal?</em> If it's the ideal, that feeling is information about your standards, not your capability. The internal critic that makes you good at the work is the same voice that makes you hesitant to claim it. That's not humility. That's miscalibrated self-assessment. The correction is deliberate — you have to manually adjust for it.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ SECTION 4 — THE MEDICAL FRONTIER ═══════════ -->
+<div class="section-spacer"></div>
+<div class="container">
+  <div class="section-header">
+    <span class="section-tag" style="background:#1e40af;">Medical Frontier</span>
+    <span class="section-title">ICU · Transplant · Bioethics · Critical Care</span>
+  </div>
+
+  <div class="medical-card">
+    <div class="deck">ICU Insight: Why DCD Timing Is the Most Ethically Loaded Moment in Medicine</div>
+    <div class="subdeck">Most people think organ donation decisions are made at death. They're not. They're made in the hours before it — and that's where the system fractures.</div>
+
+    <div class="medical-row">
+      <span class="label" style="color:#60a5fa;">The Clinical Reality</span>
+      <p>DCD requires a withdrawal of life support decision to be made <em>before</em> donation is discussed. The sequence: (1) family decides to withdraw life-sustaining treatment → (2) OPO is notified → (3) comfort care is initiated → (4) life support is withdrawn → (5) heart stops → (6) mandatory observation period (2–5 min) → (7) death declared → (8) organ recovery begins. The ethical architecture is designed to ensure donation does not influence end-of-life care. The OPO cannot be in the room for steps 1–4. The physician declaring death cannot be on the transplant team. These firewalls exist for a reason.</p>
+    </div>
+
+    <div class="medical-row">
+      <span class="label" style="color:#60a5fa;">Where It Fractures</span>
+      <p>The system fractures when timeline pressure enters. OPOs work against a biological clock — warm ischemia time begins when circulation stops. Every minute counts for organ viability. This creates a structural incentive to compress the observation period, rush family consent, or subtly shift end-of-life framing before death is declared. The 2025 cases that drove 20,000 registry removals involved patients being prepped for organ recovery while showing brain activity — not because anyone was malicious, but because the system's volume incentives had quietly eroded the margins.</p>
+    </div>
+
+    <div class="medical-row">
+      <span class="label" style="color:#60a5fa;">The Teaching Point</span>
+      <p>Brain death and circulatory death are not the same thing, and the public doesn't understand the difference. <strong>Brain death</strong> = irreversible cessation of all brain function including the brainstem. <strong>DCD</strong> = the heart stops — but brain death may not have occurred. This is why the CMS guidance released this month — prohibiting OPOs from influencing the timing of life support withdrawal or death declarations — is not bureaucratic housekeeping. It's the system trying to re-establish a firewall that had quietly eroded under volume pressure. The medical community knows this. The public doesn't. That gap is where trust dies.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ SECTION 5 — THE POWER MAP ═══════════ -->
+<div class="section-spacer"></div>
+<div class="container">
+  <div class="section-header">
+    <span class="section-tag">Power Map</span>
+    <span class="section-title">Player · Strategy · Capability · Weakness</span>
+  </div>
+
+  <div class="power-card">
+    <div class="deck">The Iran War: A Systems Map of Who Holds the Leverage</div>
+
+    <div class="power-row">
+      <span class="label red">The Players &amp; Their Positions</span>
+      <p>— <strong>U.S./Israel:</strong> Offensive air superiority, stated objectives (nuclear disarmament, missile capability, regime change). Constraint: no ground occupation appetite, domestic opinion sensitive to casualties.</p>
+      <p>— <strong>Iran:</strong> Conventional military capability degraded. Primary leverage: Strait of Hormuz interdiction. Secondary: proxy network (Houthis, Hezbollah remnants), domestic legitimacy of new Interim Leadership Council.</p>
+      <p>— <strong>Saudi Arabia/Gulf States:</strong> Nominally aligned with U.S. Brent at $103 hurts demand but benefits revenue. Crown Prince has vowed military force against further Iranian incursions into Saudi airspace.</p>
+      <p>— <strong>China:</strong> Maximum strategic patience. U.S. distracted = China's window to press Taiwan Strait, accelerate tech decoupling, consolidate rare earth leverage. Xi-Trump talks still scheduled for April.</p>
+      <p>— <strong>Russia:</strong> Already holding a card: Putin spoke with Trump on Day 12, relayed Iranian negotiation overture. Russia as intermediary = Russia as relevant actor again.</p>
+    </div>
+
+    <div class="power-row">
+      <span class="label red">The Real Leverage Point</span>
+      <p>The Strait of Hormuz. 20% of global oil passes through a 21-mile-wide channel. Iran doesn't need to win militarily — it only needs to keep the strait functionally disrupted long enough to: (a) make Brent hit $120+, (b) push global recession risk high enough that U.S. allies fracture on continued support, (c) force negotiation from a stronger position. The war is being fought in the headlines. The real war is in the shipping lanes.</p>
+    </div>
+
+    <div class="power-row">
+      <span class="label red">The Weakness Everyone Is Ignoring</span>
+      <p>Iran's new Interim Leadership Council has zero legitimacy with the Iranian street. The January protests that triggered this war were the largest since the Islamic Revolution. The regime's survival playbook — rally nationalist sentiment against external aggression — is harder to execute when your military is visibly degraded and your Supreme Leader's family is in the news for incompetence.</p>
+    </div>
+
+    <div class="power-row">
+      <span class="label red">What to Watch</span>
+      <p>Trump said "most intense day of strikes" is coming Tuesday. Watch: (a) does the Interim Leadership Council request ceasefire talks through a third party (Russia, Qatar)? (b) Does Brent break $110? At $110, European central banks will be forced to re-price inflation expectations, and the FOMC's "do nothing" stance becomes untenable. (c) Does China make a move — a Taiwan Strait incursion — to test U.S. attention bandwidth?</p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ SECTION 6 — MENTAL MODEL ═══════════ -->
+<div class="section-spacer"></div>
+<div class="container">
+  <div class="section-header">
+    <span class="section-tag black">Mental Model</span>
+    <span class="section-title">Concept · Explanation · Real-World Application</span>
+  </div>
+
+  <div class="mental-card">
+    <div class="deck">The Principal-Agent Problem — And Why It Explains Almost Everything Wrong With Healthcare</div>
+
+    <div class="mental-row">
+      <span class="label gray">The Concept</span>
+      <p>A principal-agent problem occurs when someone (the agent) is hired to act in someone else's interest (the principal), but the agent's incentives don't align with the principal's goals. The agent has information the principal doesn't. That asymmetry + misaligned incentives = the agent optimizes for themselves. Classic examples: a car mechanic who recommends unnecessary repairs. A financial advisor paid by commission. A doctor paid per procedure.</p>
+    </div>
+
+    <div class="mental-row">
+      <span class="label gray">Where It Shows Up in Real Life</span>
+      <p>Healthcare is a cascading principal-agent problem with at least four layers: (1) Patient (wants health) → Doctor (paid for procedures, not outcomes). (2) Doctor (wants good outcomes) → Hospital (wants billable throughput). (3) Hospital (wants revenue) → Insurance Company (wants to deny claims). (4) Insurance Company (wants profit) → Employer (wants healthy employees). At each layer, the agent has information the principal doesn't, and incentives that diverge. This is why the U.S. spends 18% of GDP on healthcare and gets median outcomes. It's not corruption. It's structure.</p>
+    </div>
+
+    <div class="mental-row">
+      <span class="label gray">How to Use This Model</span>
+      <p>When something in a system isn't working, stop asking "who is doing this wrong" and start asking "whose incentives created this outcome?" Then ask: what information does the agent have that the principal doesn't? The fix is almost never punishment — it's either (a) changing incentives so the agent benefits from the principal's goal, or (b) reducing information asymmetry so the principal can verify. The CMS shift to death-certificate-based OPO metrics? That's (b). Value-based care models? That's (a). Both are attempts to solve the same structural problem.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ SECTION 7 — THE BUILD LOG ═══════════ -->
+<div class="section-spacer"></div>
+<div class="container">
+  <div class="section-header">
+    <span class="section-tag" style="background:#16a34a;">Build Log</span>
+    <span class="section-title">Builder Transparency · Healthcare Software · AI Tooling</span>
+  </div>
+
+  <div class="build-card">
+    <div class="deck">Claude Code Is Eating Software Engineering — Here's What That Actually Means for Builders</div>
+    <div class="subdeck">When IBM lost $40B in one trading session after an Anthropic blog post, that was a signal. Here's how to read it.</div>
+
+    <div class="build-row">
+      <span class="label" style="color:#16a34a;">What's Actually Happening</span>
+      <p>Claude Code is now the #1 AI coding tool among developers — overtaking GitHub Copilot and Cursor in 8 months. 75% of engineers at smaller companies use it as their primary tool. Anthropic's own engineers use Claude for 60% of their work (up from 28% a year ago) and ship 60–100 internal releases per day. Claude Opus 4.6 has a 1,000,000-token context window — meaning it can hold an entire codebase in context at once. This isn't autocomplete anymore. It's a co-engineer that understands the full architecture of what you're building.</p>
+      <p>The COBOL announcement is the tell: Anthropic published that Claude Code can convert legacy COBOL (the 60-year-old language that runs ~$3 trillion of banking/insurance infrastructure) into modern languages. IBM stock lost $40 billion in a single session. That reaction is the market pricing the end of a services business — not a product. IBM has ~80,000 COBOL consultants. The math isn't complicated.</p>
+    </div>
+
+    <div class="build-row">
+      <span class="label" style="color:#16a34a;">The Leverage Point for Builders</span>
+      <p>If you're building T-1 Med or any healthcare software: the constraint is no longer "can we write the code." The constraint is now <em>"do we understand the problem well enough to tell Claude what to build?"</em> That's a different skill. It's closer to systems architecture than software development. The advantage goes to people who can: (1) precisely specify requirements, (2) understand healthcare data flows and compliance constraints, (3) know when the output is wrong even when it looks right. Medical background + systems thinking + AI tooling = a very small Venn diagram. That's your moat.</p>
+    </div>
+
+    <div class="build-row">
+      <span class="label" style="color:#16a34a;">What to Do with This</span>
+      <p>The MCP (Model Context Protocol) standard is the infrastructure layer worth watching. With 97 million monthly SDK downloads and Chrome 146 shipping WebMCP natively, MCP is becoming the USB port for AI agents — a universal connection point between AI systems and real-world tools. If you're building healthcare workflows, MCP means your AI agents can connect to EHRs, scheduling systems, and compliance tools through a standardized interface. The MCP Dev Summit is April 2–3 in NYC. It will be the clearest signal yet of how the agentic infrastructure layer is being built.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ MARKET OUTLOOK ═══════════ -->
+<div class="section-spacer"></div>
+<div class="container">
+  <div class="section-header">
+    <span class="section-tag black">Market Outlook</span>
+    <span class="section-title">Week of March 16 · Key Catalysts</span>
+  </div>
+
+  <div class="outlook-table-wrap">
+    <table class="outlook-table">
+      <thead>
+        <tr>
+          <th>Day</th>
+          <th>Event</th>
+          <th>Signal</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Mon Mar 16</td>
+          <td><strong>Nvidia GTC begins</strong> · Empire State Mfg</td>
+          <td>AI infrastructure narrative vs. Iran anxiety — Nvidia keynote is the swing factor</td>
+        </tr>
+        <tr>
+          <td>Tue Mar 17</td>
+          <td>ADP Employment · Pending Home Sales</td>
+          <td>Labor softening = more dovish pressure on Fed</td>
+        </tr>
+        <tr>
+          <td>Wed Mar 18</td>
+          <td><strong>FOMC Decision + Dot Plot</strong></td>
+          <td>Hawkish hold near-certain. Watch dot plot for 2026 cut projections — any reduction = selloff</td>
+        </tr>
+        <tr>
+          <td>Thu Mar 19</td>
+          <td>Micron · Nike · FedEx earnings</td>
+          <td>Micron = AI memory demand bellwether. FedEx = supply chain Iran impact</td>
+        </tr>
+        <tr>
+          <td>Fri Mar 20</td>
+          <td>BoE Decision · Global PMIs</td>
+          <td>UK/EU response to energy shock — will Europe blink on rate holds?</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <ul class="outlook-bullets">
+    <li><strong>The thesis:</strong> S&amp;P 500 is 5% off its high, 3rd straight losing week. Wells Fargo says look through Iran noise — WTI target $65–75 long-term. The Magnificent Seven are in correction (-7% YTD). Small caps (Russell 2000) outperforming: +6% YTD.</li>
+    <li><strong>The risk:</strong> If Brent breaks $110, all bets are off. European central banks re-price. Fed's "do nothing" stance becomes impossible. Stagflation scenario becomes base case.</li>
+    <li><strong>The wildcard:</strong> Nvidia GTC. One strong demo of inference at consumer scale = markets reprice AI trade positively. Analysts say Nvidia needs to show "Blackwell Ultra at scale" — anything less is already priced in.</li>
+  </ul>
+</div>
+
+<!-- ═══════════ FOREIGN POLICY / POLITICAL ═══════════ -->
+<div class="section-spacer"></div>
+<div class="container">
+  <div class="section-header">
+    <span class="section-tag">Foreign Policy</span>
+    <span class="section-title">Iran War · U.S. Politics · Global Power</span>
+  </div>
+
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px;">
+
+    <!-- Iran War Update -->
+    <div style="background:var(--black); border-radius:var(--r-md); padding:28px 28px; color:white;">
+      <div style="font-family:var(--mono); font-size:9px; font-weight:600; letter-spacing:0.14em; text-transform:uppercase; color:var(--red); margin-bottom:10px;">Iran War · Day 15</div>
+      <div style="font-family:var(--serif); font-size:17px; font-weight:700; color:white; line-height:1.3; margin-bottom:12px;">Trump: U.S. Has “Totally Obliterated” Iran’s Kharg Island</div>
+      <p style="font-size:13px; color:rgba(255,255,255,0.78); line-height:1.7;">This morning Trump announced U.S. strikes have “totally obliterated” military assets on Kharg Island — Iran’s primary oil export terminal — while stopping short of hitting the key oil facilities themselves. The IEA has called this the “largest supply disruption in the history of the global oil market.”</p>
+      <p style="font-size:13px; color:rgba(255,255,255,0.78); line-height:1.7; margin-top:10px;">Political scientist John Mearsheimer argues publicly: <em>“We’re not going to win this war.”</em> Regime change by airpower alone has no historical precedent. Ground invasion politically untenable — only 20% of Americans supported the war at the outset. Watch for ceasefire overtures through Qatar or Russia as the U.S. faces weapon-stock concerns flagged by the Joint Chiefs.</p>
+      <div style="margin-top:14px; padding-top:14px; border-top:1px solid rgba(255,255,255,0.1); font-family:var(--mono); font-size:10px; color:rgba(255,255,255,0.4);">Brent Crude: $98.71 (+3.11%) &nbsp;·&nbsp; Strait of Hormuz: blocked &nbsp;·&nbsp; U.S. KIA: 6</div>
+    </div>
+
+    <!-- South Florida Politics -->
+    <div style="background:var(--gray-7); border:1px solid var(--gray-5); border-radius:var(--r-md); padding:28px 28px;">
+      <div style="font-family:var(--mono); font-size:9px; font-weight:600; letter-spacing:0.14em; text-transform:uppercase; color:var(--gray-2); margin-bottom:10px;">South Florida Politics</div>
+      <div style="font-family:var(--serif); font-size:17px; font-weight:700; color:var(--black); line-height:1.3; margin-bottom:12px;">Three Local Stories Worth Watching</div>
+
+      <div style="margin-bottom:16px; padding-bottom:16px; border-bottom:1px solid var(--gray-5);">
+        <div style="font-family:var(--mono); font-size:9px; font-weight:600; text-transform:uppercase; color:var(--red); letter-spacing:0.1em; margin-bottom:5px;">Miami-Dade GOP Chat Scandal</div>
+        <p style="font-size:13px; color:var(--ink-3); line-height:1.7;">Young Miami-Dade Republican leaders were exposed in a private group chat using racial slurs, antisemitic language, and comments degrading women. State legislators from both parties condemned it. The party secretary who started the chat was removed from Hialeah’s planning board. FIU’s president says campus police are investigating. Investigations ongoing — calls to resign continue.</p>
+      </div>
+
+      <div style="margin-bottom:16px; padding-bottom:16px; border-bottom:1px solid var(--gray-5);">
+        <div style="font-family:var(--mono); font-size:9px; font-weight:600; text-transform:uppercase; color:var(--red); letter-spacing:0.1em; margin-bottom:5px;">Broward Schools $85M Deficit</div>
+        <p style="font-size:13px; color:var(--ink-3); line-height:1.7;">Broward County Public Schools faces an $85M structural deficit. Gov. DeSantis has threatened state receivership if corrective action isn’t taken. BCPS board is working through budget amendments. Direct impact: staffing, programs, and capital projects across Weston-area schools.</p>
+      </div>
+
+      <div>
+        <div style="font-family:var(--mono); font-size:9px; font-weight:600; text-transform:uppercase; color:var(--red); letter-spacing:0.1em; margin-bottom:5px;">FPL Rate Hike Push</div>
+        <p style="font-size:13px; color:var(--ink-3); line-height:1.7;">State lawmakers debated FPL’s push to raise residential electricity rates. County commissioners say they’re legally prohibited from blocking it. One lawmaker is directly challenging FPL’s rate authority. Outcome could affect Broward and Miami-Dade bills significantly.</p>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ═══════════ SOUTH FLORIDA WEEKEND ═══════════ -->
+<div class="section-spacer"></div>
+<div class="container">
+  <div class="section-header">
+    <span class="section-tag" style="background:#7c3aed;">South Florida</span>
+    <span class="section-title">Weston · Broward · Miami · This Weekend</span>
+  </div>
+
+  <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; margin-bottom:20px;">
+
+    <!-- Date Night -->
+    <div style="background:var(--white); border:1px solid var(--gray-5); border-radius:var(--r-md); overflow:hidden; box-shadow:var(--shadow-sm);">
+      <div style="background:#7c3aed; padding:10px 16px;">
+        <span style="font-family:var(--mono); font-size:9px; font-weight:600; letter-spacing:0.14em; text-transform:uppercase; color:rgba(255,255,255,0.7);">Date Night</span>
+      </div>
+      <div style="padding:16px;">
+        <div style="font-family:var(--serif); font-size:13px; font-weight:700; color:var(--black); margin-bottom:10px; line-height:1.3;">Hell’s Kitchen — The Musical</div>
+        <p style="font-size:12px; color:var(--ink-3); line-height:1.65; margin-bottom:8px;">Broward Center for the Performing Arts. The Tony Award-winning Broadway show built around Alicia Keys’ catalog. Running through March 22. Not a concert — even better.</p>
+        <div style="font-family:var(--mono); font-size:9px; color:var(--gray-2); margin-bottom:6px;">201 SW 5th Ave, Fort Lauderdale</div>
+        <div style="margin-bottom:8px; padding-bottom:8px; border-bottom:1px solid var(--gray-5);">
+          <div style="font-family:var(--serif); font-size:13px; font-weight:700; color:var(--black); margin-bottom:4px; line-height:1.3;">Candlelight: Beatles Tribute</div>
+          <p style="font-size:12px; color:var(--ink-3); line-height:1.65;">Sunday Mar 15. Hotel Colonnade, Coral Gables. Intimate candlelit concert. Perfect evening out.</p>
+        </div>
+        <div>
+          <div style="font-family:var(--serif); font-size:13px; font-weight:700; color:var(--black); margin-bottom:4px; line-height:1.3;">GroundUP Music Festival</div>
+          <p style="font-size:12px; color:var(--ink-3); line-height:1.65;">Through Sun Mar 15. Miami Bandshell, North Beach. Jazz, soul, funk. 10th anniversary. Steps from the ocean.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Family -->
+    <div style="background:var(--white); border:1px solid var(--gray-5); border-radius:var(--r-md); overflow:hidden; box-shadow:var(--shadow-sm);">
+      <div style="background:#0369a1; padding:10px 16px;">
+        <span style="font-family:var(--mono); font-size:9px; font-weight:600; letter-spacing:0.14em; text-transform:uppercase; color:rgba(255,255,255,0.7);">Family</span>
+      </div>
+      <div style="padding:16px;">
+        <div style="font-family:var(--serif); font-size:13px; font-weight:700; color:var(--black); margin-bottom:6px; line-height:1.3;">Calle Ocho Music Festival</div>
+        <p style="font-size:12px; color:var(--ink-3); line-height:1.65; margin-bottom:8px;">Sunday Mar 15, 11AM–7PM. Little Havana, SW 12th–27th Ave. World’s largest Latin music festival — 15 blocks of salsa, merengue, reggaetón, food, and dance. Free admission.</p>
+        <div style="margin-bottom:8px; padding-bottom:8px; border-bottom:1px solid var(--gray-5);">
+          <div style="font-family:var(--serif); font-size:13px; font-weight:700; color:var(--black); margin-bottom:4px; line-height:1.3;">St. Patrick’s Day Parade — Delray</div>
+          <p style="font-size:12px; color:var(--ink-3); line-height:1.65;">Today on Atlantic Ave, Delray Beach. 56th year. Free. Fire departments from around the world, floats, pipes & drums. Closures begin 8 AM.</p>
+        </div>
+        <div>
+          <div style="font-family:var(--serif); font-size:13px; font-weight:700; color:var(--black); margin-bottom:4px; line-height:1.3;">Miami-Dade County Fair</div>
+          <p style="font-size:12px; color:var(--ink-3); line-height:1.65;">Running through April 5. SW 24th St, Miami. Classic fairground rides, food, live entertainment. Weekend staple with kids.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sports + Outdoors -->
+    <div style="background:var(--white); border:1px solid var(--gray-5); border-radius:var(--r-md); overflow:hidden; box-shadow:var(--shadow-sm);">
+      <div style="background:#16a34a; padding:10px 16px;">
+        <span style="font-family:var(--mono); font-size:9px; font-weight:600; letter-spacing:0.14em; text-transform:uppercase; color:rgba(255,255,255,0.7);">Sports + Outdoors</span>
+      </div>
+      <div style="padding:16px;">
+        <div style="font-family:var(--serif); font-size:13px; font-weight:700; color:var(--black); margin-bottom:6px; line-height:1.3;">Miami Open Tennis</div>
+        <p style="font-size:12px; color:var(--ink-3); line-height:1.65; margin-bottom:8px;">March 15–29. Hard Rock Stadium, Miami Gardens. World’s top ATP + WTA players. More festival than tournament — celebrity sightings, food, entertainment throughout.</p>
+        <div style="margin-bottom:8px; padding-bottom:8px; border-bottom:1px solid var(--gray-5);">
+          <div style="font-family:var(--serif); font-size:13px; font-weight:700; color:var(--black); margin-bottom:4px; line-height:1.3;">World Baseball Classic</div>
+          <p style="font-size:12px; color:var(--ink-3); line-height:1.65;">Quarterfinals through Mar 17. loanDepot Park, Miami. Electric international atmosphere. One of the best live sports experiences in South Florida right now.</p>
+        </div>
+        <div>
+          <div style="font-family:var(--serif); font-size:13px; font-weight:700; color:var(--black); margin-bottom:4px; line-height:1.3;">Michelangelo’s Sistine Chapel Exhibition</div>
+          <p style="font-size:12px; color:var(--ink-3); line-height:1.65;">Galleria Fort Lauderdale. Immersive exhibition. Running through spring. Good rainy-day or Sunday option.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Weston Specifically -->
+  <div style="background:var(--black); border-radius:var(--r-md); padding:20px 24px; display:flex; align-items:center; gap:24px;">
+    <div style="flex-shrink:0;">
+      <div style="font-family:var(--mono); font-size:9px; font-weight:600; letter-spacing:0.14em; text-transform:uppercase; color:rgba(255,255,255,0.4); margin-bottom:4px;">Weston Specifically</div>
+      <div style="font-family:var(--serif); font-size:15px; font-weight:700; color:white; line-height:1.3;">Water Matters Day — Today</div>
+    </div>
+    <div style="flex:1; font-size:13px; color:rgba(255,255,255,0.65); line-height:1.6;">City of Weston event this morning. Weston Regional Park area. Free community event focused on South Florida water conservation. Good local civic touchpoint. Next up: Symphony in the Park “Sounds of Spring” — Fri Mar 28, 6:30 PM, free outdoor concert.</div>
+    <div style="flex-shrink:0; font-family:var(--mono); font-size:10px; color:rgba(255,255,255,0.3); text-align:right;">westonfl.org<br>events calendar</div>
+  </div>
+</div>
+
+<!-- ═══════════ AVIATION ═══════════ -->
+<div class="section-spacer"></div>
+<div class="container">
+  <div class="section-header">
+    <span class="section-tag" style="background:#1e40af;">Aviation</span>
+    <span class="section-title">IFR Certification Track · KFLL · KFXE · KPMP</span>
+  </div>
+
+  <div class="aviation-grid">
+    <div class="avi-card">
+      <h3>KFLL / KFXE — Go/No-Go Analysis</h3>
+      <div class="wx-row">
+        <span class="wx-row-day">Today (Sat)</span>
+        <span><span class="go">GO — VFR.</span> KFLL: FEW028, vis 10SM, winds 120°/5kt. Altimeter 30.07. KFXE: CLR, 130°/4kt. Great day to fly.</span>
+      </div>
+      <div class="wx-row">
+        <span class="wx-row-day">Sunday</span>
+        <span><span class="nogo">NO-GO — VFR.</span> Ceilings dropping to 1,500–2,000 ft AGL. Embedded convection. Vis reducing to 3–5SM. 50 mph gusts. KFXE expect BKN012–015 by afternoon. Severe storm warning Broward/Miami-Dade.</span>
+      </div>
+      <div class="wx-row">
+        <span class="wx-row-day">Monday</span>
+        <span><span class="go">GO.</span> System clears. Dry week ahead. Good week for dual IFR training flights with your CFII.</span>
+      </div>
+
+      <div class="amber-tip">
+        <strong>Decision brief:</strong> This is the exact scenario for chair flying. Pull the KFLL RNAV 28L approach plate. Study the missed approach procedure. Brief it out loud as if you're in the airplane. The DPE will ask you to brief an approach cold — practice the format now.
+      </div>
+    </div>
+
+    <div class="avi-card">
+      <h3>The 1-2-3 Rule — And Why It Actually Matters This Weekend</h3>
+      <p>The 1-2-3 rule (FAR 91.169): if your destination airport is forecast to have less than 2,000 ft ceiling or 3 SM visibility within ±1 hour of your ETA, you must file an alternate. Sunday's forecast at KFLL will likely trigger this threshold.</p>
+      <p>More importantly — the rule reveals a thinking framework. You're not just checking boxes. You're asking: <em>what is my exit strategy if the destination goes below minimums?</em> That's the IFR mindset shift. VFR pilots think about where they're going. IFR pilots think about every airport within fuel range and what each one requires.</p>
+
+      <div class="code-tip">
+        <strong>Alternate minimums:</strong><br>
+        KFLL (Fort Lauderdale) — 600-2<br>
+        KPMP (Pompano Beach) — 800-2<br>
+        KFXE (Executive) — 900-2<br><br>
+        Know these cold. The DPE will ask. More importantly — you'll need them in real conditions.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ FOOTER ═══════════ -->
+<footer class="site-footer">
+  <div class="footer-inner">
+    <div class="footer-wordmark">The Barringer Brief</div>
+    <div class="footer-tagline">Intelligence · Systems · Medicine · Power</div>
+    <div class="footer-rule"></div>
+    <div class="footer-issue">Issue 001 · Saturday, March 14, 2026</div>
+    <div class="footer-credit">
+      <a href="https://www.perplexity.ai/computer" target="_blank" rel="noopener noreferrer">Created with Perplexity Computer</a>
+    </div>
+  </div>
+</footer>
+
+<!-- ═══════════ LIVE DATA SCRIPTS ═══════════ -->
+<script>
+/* ── LIVE WEATHER — Open-Meteo (no API key required) ── */
+async function fetchWeather() {
+  try {
+    // Weston, FL coordinates
+    const url = 'https://wttr.in/Weston,FL?format=j1';
+    const res = await fetch(url);
+    const data = await res.json();
+
+    const cur = data.current_condition[0];
+    const today = data.weather[0];
+
+    document.getElementById('wx-temp').innerHTML = `${cur.temp_F}<sup>°F</sup>`;
+    document.getElementById('wx-desc').textContent = cur.weatherDesc[0].value.trim();
+    document.getElementById('wx-feels').textContent = `Feels like ${cur.FeelsLikeF}°F`;
+    document.getElementById('wx-wind').textContent = `${cur.windspeedMiles} mph ${cur.winddir16Point}`;
+    document.getElementById('wx-humid').textContent = `${cur.humidity}%`;
+    document.getElementById('wx-vis').textContent = `${cur.visibilityMiles} mi`;
+    document.getElementById('wx-uv').textContent = `${cur.uvIndex}`;
+    document.getElementById('wx-high').textContent = `${today.maxtempF}°F`;
+    document.getElementById('wx-low').textContent = `${today.mintempF}°F`;
+
+    const badge = document.getElementById('wx-badge');
+    badge.textContent = 'Live';
+    badge.className = 'wx-live-badge';
+  } catch(e) {
+    const badge = document.getElementById('wx-badge');
+    badge.textContent = 'Offline';
+    badge.className = 'wx-live-badge loading';
+
+    // Fall back to data fetched at build time
+    document.getElementById('wx-temp').innerHTML = `84<sup>°F</sup>`;
+    document.getElementById('wx-desc').textContent = 'Sunny';
+    document.getElementById('wx-feels').textContent = 'Feels like 91°F';
+    document.getElementById('wx-wind').textContent = '3 mph ESE';
+    document.getElementById('wx-humid').textContent = '61%';
+    document.getElementById('wx-vis').textContent = '9 mi';
+    document.getElementById('wx-uv').textContent = '5';
+    document.getElementById('wx-high').textContent = '87°F';
+    document.getElementById('wx-low').textContent = '69°F';
+  }
+}
+
+/* ── LIVE METAR — aviationweather.gov (free, no key) ── */
+async function fetchMetar() {
+  try {
+    const url = 'https://aviationweather.gov/api/data/metar?ids=KFLL,KFXE,KPMP&format=json';
+    const res = await fetch(url);
+    const data = await res.json();
+
+    const container = document.querySelector('.metar-list');
+    if (!container || !data || data.length === 0) return;
+
+    const order = ['KFLL', 'KFXE', 'KPMP'];
+    container.innerHTML = '';
+
+    order.forEach(id => {
+      const station = data.find(s => s.icaoId === id);
+      if (!station) return;
+
+      const temp = station.temp !== null ? Math.round(station.temp) : '--';
+      const wind = station.wspd ? `${station.wdir}°/${station.wspd}kt` : 'Calm';
+      const cover = station.cover || 'CLR';
+      const cat = station.fltCat || 'VFR';
+
+      const row = document.createElement('div');
+      row.className = 'metar-row';
+      row.innerHTML = `
+        <div>
+          <div class="metar-apt">${id}</div>
+          <div class="metar-cond">${temp}°C · ${cover} · ${wind}</div>
+        </div>
+        <span class="metar-cat ${cat}">${cat}</span>
+      `;
+      container.appendChild(row);
+    });
+  } catch(e) {
+    // silently fail — static data already in HTML
+  }
+}
+
+/* ── LIVE TICKER — Uses live market data already baked in ── */
+function buildTicker() {
+  const items = [
+    { label: '🔴 Iran War: Day 14', value: 'Strait of Hormuz blocked · Brent $98.71 · +3.11%', cls: 'alert' },
+    { label: '⚠️ Epstein Files', value: '37 pages missing · AG Bondi subpoenaed · Bipartisan', cls: 'alert' },
+    { label: 'SPY', value: '$662.29', change: '-0.57%', cls: 'down' },
+    { label: 'QQQ', value: '$593.72', change: '-0.59%', cls: 'down' },
+    { label: 'NVDA', value: '$180.25', change: '-1.59%', cls: 'down' },
+    { label: 'AAPL', value: '$250.12', change: '-2.21%', cls: 'down' },
+    { label: 'BTC', value: '$70,611', change: '-0.47%', cls: 'down' },
+    { label: 'Crude Oil', value: '$98.71', change: '+3.11%', cls: 'up' },
+    { label: 'KFLL METAR', value: 'VFR · FEW028 · 5kt · 30.07"', cls: '' },
+    { label: '🤖 Claude Code', value: '#1 AI coding tool · IBM -$40B', cls: '' },
+    { label: 'FOMC', value: 'March 17–18 · Hawkish hold expected · Dot plot in focus', cls: '' },
+    { label: 'Nvidia GTC', value: 'March 16–19 San Jose · Blackwell Ultra reveal', cls: '' },
+    { label: '💉 Transplant Record', value: '49,065 U.S. transplants in 2025', cls: '' },
+    { label: '🌩️ Broward/Miami-Dade', value: 'Severe storm warning Sunday PM', cls: 'alert' },
+  ];
+
+  const scroll = document.getElementById('ticker-scroll');
+  if (!scroll) return;
+
+  const makeItems = () => items.map(item => {
+    const changeHtml = item.change
+      ? ` <span class="change ${item.cls}">${item.change}</span>`
+      : '';
+    return `<div class="ticker-item ${item.cls || ''}"><span class="dot"></span><strong>${item.label}</strong>&nbsp;${item.value}${changeHtml}</div>`;
+  }).join('');
+
+  // Duplicate for seamless loop
+  scroll.innerHTML = makeItems() + makeItems();
+}
+
+/* ── DATE / TIME ── */
+function updateDateTime() {
+  const now = new Date();
+  const opts = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+  const dateStr = now.toLocaleDateString('en-US', opts);
+  const el = document.getElementById('masthead-date');
+  if (el) el.textContent = dateStr;
+
+  const topTime = document.getElementById('topbar-time');
+  if (topTime) {
+    const short = now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+    topTime.textContent = short;
+  }
+}
+
+/* ── INIT ── */
+buildTicker();
+updateDateTime();
+fetchWeather();
+fetchMetar();
+</script>
+
+</body>
+</html>
