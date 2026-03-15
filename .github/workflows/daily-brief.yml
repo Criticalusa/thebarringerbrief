@@ -1,0 +1,29 @@
+name: The Barringer Brief — Daily Email
+
+on:
+  # Runs every day at 11:00 UTC = 7:00 AM EDT
+  schedule:
+    - cron: '0 11 * * *'
+
+  # Also allows a manual trigger from the GitHub Actions tab (for testing)
+  workflow_dispatch:
+
+jobs:
+  send-brief:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run The Barringer Brief
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          GCAL_ICAL_URL: ${{ secrets.GCAL_ICAL_URL }}
+        run: python barringer-brief.py
