@@ -368,183 +368,179 @@ def fetch_markets():
 
 # ── CALENDAR (macOS) ─────────────────────────────────────────────────────────
 def fetch_calendar():
-    """Fetch next 7 days of calendar events. Tries 3 methods in order:
-    1. icalBuddy (fastest, no app launch needed)
-    2. sqlite3 direct read of Calendar DB
-    3. AppleScript fallback (slowest)
-    """
-    import glob as _glob, sqlite3 as _sqlite3
+    """Fetch next 7 days of events. Tries icalBuddy, then ICS files, then AppleScript."""
+    import glob as _glob
 
     now = datetime.datetime.now()
     cutoff = now + datetime.timedelta(days=7)
 
-    # ── METHOD 1: icalBuddy ───────────────────────────────────────────────────
+    # -- METHOD 1: icalBuddy --
+    ical_paths = ["/usr/local/bin/icalBuddy", "/opt/homebrew/bin/icalBuddy", "/usr/bin/icalBuddy"]
+    ical_bin = next((p for p in ical_paths if os.path.exists(p)), None)
+    if ical_bin:
+        try:
+            result = subprocess.run(
+                [ical_bin, "-b", "", "-n", "-ea", "-iep", "title,datetime",
+                 "-df", "%Y-%m-%d", "-tf", "%H:%M", "eventsFrom:today to:+7 days"],
+                capture_output=True, text=True, timeout=8
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                events = []
+                seen = set()
+                cur_title = None
+                for ln in result.stdout.strip().splitlines():
+                    stripped = ln.strip()
+                    if not stripped or stripped.startswith("No ") or stripped.startswith("*"):
+                        continue
+                    if not ln[0:1].isspace() and not stripped[0:1].isdigit():
+                        cur_title = stripped.lstrip("- ").strip()
+                    elif cur_title and (stripped[0:2].isdigit() or stripped.startswith("20")):
+                        key = cur_title + stripped
+                        if key not in seen:
+                            seen.add(key)
+                            try:
+                                dt = datetime.datetime.strptime(stripped[:16], "%Y-%m-%d %H:%M")
+                                time_str = dt.strftime("%A, %b %-d · %-I:%M %p")
+                                dt_key = dt.isoformat()
+                            except Exception:
+                                time_str = stripped
+                                dt_key = stripped
+                            events.append({"title": cur_title, "time": time_str,
+                                           "dt": dt_key, "location": "", "attendees": []})
+                if events:
+                    events.sort(key=lambda e: e.get("dt", ""))
+                    log("  Calendar: " + str(len(events)) + " events (icalBuddy)")
+                    return events[:8]
+        except Exception as e:
+            log("[CALENDAR] icalBuddy error: " + str(e))
+
+    # -- METHOD 2: Parse .ics files directly --
     try:
-        result = subprocess.run(
-            ["/usr/local/bin/icalBuddy", "-b", "", "-n", "-ea",
-             "-iep", "title,datetime", "-df", "%Y-%m-%d", "-tf", "%H:%M",
-             "eventsFrom:today to:+7 days"],
-            capture_output=True, text=True, timeout=8
-        )
+        ics_files = _glob.glob(os.path.expanduser("~/Library/Calendars/**/*.ics"), recursive=True)
+        events = []
+        seen = set()
+        now_dt = now
+        cut_dt = cutoff
+        for fpath in ics_files:
+            try:
+                with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
+                    raw = f.read()
+            except Exception:
+                continue
+            blocks = raw.split("BEGIN:VEVENT")
+            for block in blocks[1:]:
+                end_idx = block.find("END:VEVENT")
+                if end_idx >= 0:
+                    block = block[:end_idx]
+                block = block.replace("\r\n ", "").replace("\n ", "")
+                props = {}
+                for ln in block.strip().splitlines():
+                    if ":" in ln:
+                        k, _, v = ln.partition(":")
+                        k = k.split(";")[0].strip()
+                        props[k] = v.strip()
+                summary = props.get("SUMMARY", "")
+                dtstart_raw = props.get("DTSTART", "")
+                if not summary or not dtstart_raw:
+                    continue
+                s = dtstart_raw.replace("Z", "")
+                dt = None
+                if len(s) >= 15:
+                    try:
+                        dt = datetime.datetime(int(s[0:4]), int(s[4:6]), int(s[6:8]),
+                                               int(s[9:11]), int(s[11:13]))
+                    except Exception:
+                        pass
+                if dt is None and len(s) == 8:
+                    try:
+                        dt = datetime.datetime(int(s[0:4]), int(s[4:6]), int(s[6:8]), 0, 0)
+                    except Exception:
+                        pass
+                if dt is None:
+                    continue
+                dt_naive = dt.replace(tzinfo=None)
+                if dt_naive < now_dt or dt_naive > cut_dt:
+                    continue
+                key = summary + dt_naive.isoformat()
+                if key in seen:
+                    continue
+                seen.add(key)
+                time_str = dt_naive.strftime("%A, %b %-d · %-I:%M %p")
+                events.append({"title": summary, "time": time_str,
+                                "dt": dt_naive.isoformat(), "location": "", "attendees": []})
+        if events:
+            events.sort(key=lambda e: e.get("dt", ""))
+            log("  Calendar: " + str(len(events)) + " events (ics files)")
+            return events[:8]
+        elif ics_files:
+            log("[CALENDAR] Parsed " + str(len(ics_files)) + " .ics files, 0 upcoming events")
+        else:
+            log("[CALENDAR] No .ics files found")
+    except Exception as e:
+        log("[CALENDAR] ics parse error: " + str(e))
+
+    # -- METHOD 3: AppleScript (last resort, 15s timeout) --
+    script = (
+        'set output to ""\n'
+        'set d1 to current date\n'
+        'set d2 to d1 + (7 * days)\n'
+        'tell application "Calendar"\n'
+        '    set allCals to every calendar\n'
+        '    repeat with c in allCals\n'
+        '        try\n'
+        '            set evList to (every event of c whose start date >= d1 and start date < d2)\n'
+        '            repeat with e in evList\n'
+        '                set t to summary of e\n'
+        '                set s to start date of e\n'
+        '                set output to output & t & "~" & (s as string) & "||"\n'
+        '            end repeat\n'
+        '        end try\n'
+        '    end repeat\n'
+        'end tell\n'
+        'return output'
+    )
+    try:
+        result = subprocess.run(["osascript", "-e", script],
+            capture_output=True, text=True, timeout=15)
         if result.returncode == 0 and result.stdout.strip():
             events = []
             seen = set()
-            current_title = None
-            current_time = None
-            for line in result.stdout.strip().splitlines():
-                line = line.strip()
-                if not line:
+            for block in result.stdout.strip().split("||"):
+                block = block.strip()
+                if not block or "~" not in block:
                     continue
-                # icalBuddy format: title on one line, datetime indented below
-                if line.startswith("•") or (not line.startswith(" ") and not line[0].isdigit()):
-                    current_title = line.lstrip("• ").strip()
-                    current_time = None
-                elif current_title and (line[0].isdigit() or line.startswith("20")):
-                    current_time = line
-                    key = current_title + current_time
-                    if key not in seen:
-                        seen.add(key)
+                parts = block.split("~", 1)
+                title = parts[0].strip()
+                time_raw = parts[1].strip() if len(parts) > 1 else ""
+                if title in seen:
+                    continue
+                seen.add(title)
+                try:
+                    clean = time_raw.replace(" at ", " ")
+                    dt = None
+                    for fmt in ["%A, %B %d, %Y %I:%M:%S %p", "%A, %B %d, %Y %I:%M %p",
+                                "%A, %B %d, %Y %I %p", "%A, %B %d, %Y"]:
                         try:
-                            # Parse "2026-03-16 09:00"
-                            dt = datetime.datetime.strptime(current_time[:16], "%Y-%m-%d %H:%M")
-                            time_str = dt.strftime("%A, %b %-d · %-I:%M %p")
+                            dt = datetime.datetime.strptime(clean, fmt)
+                            break
                         except Exception:
-                            time_str = current_time
-                        events.append({"title": current_title, "time": time_str,
-                                        "dt": current_time, "location": "", "attendees": []})
-            if events:
-                events.sort(key=lambda e: e.get("dt", ""))
-                log(f"  Calendar: {len(events)} events (icalBuddy)")
-                return events[:8]
-    except FileNotFoundError:
-        pass  # icalBuddy not installed, try next
-    except Exception as e:
-        log(f"[CALENDAR] icalBuddy failed: {e}")
-
-    # ── METHOD 2: Read Calendar SQLite DB directly ───────────────────────────
-    try:
-        db_paths = _glob.glob(
-            os.path.expanduser("~/Library/Calendars/*.caldav/*/Events/*.ics")
-        )
-        # Find the actual CalendarStore DB
-        store_db = os.path.expanduser(
-            "~/Library/Calendars/Calendar Cache"
-        )
-        if not os.path.exists(store_db):
-            store_db = None
-            # Try finding any .sqlitedb
-            dbs = _glob.glob(os.path.expanduser("~/Library/Calendars/**/*.sqlitedb"), recursive=True)
-            if dbs:
-                store_db = dbs[0]
-
-        if store_db and os.path.exists(store_db):
-            now_ts = now.timestamp()
-            cutoff_ts = cutoff.timestamp()
-            conn = _sqlite3.connect(store_db, timeout=5)
-            conn.row_factory = _sqlite3.Row
-            cur = conn.cursor()
-            # CalendarStore uses CoreData timestamps (seconds since 2001-01-01)
-            APPLE_EPOCH = 978307200  # 2001-01-01 00:00:00 UTC in Unix time
-            now_apple = now_ts - APPLE_EPOCH
-            cut_apple = cutoff_ts - APPLE_EPOCH
-            try:
-                cur.execute("""
-                    SELECT ZSUMMARY, ZSTARTDATE, ZENDDATE
-                    FROM ZCALENDARITEM
-                    WHERE ZSTARTDATE >= ? AND ZSTARTDATE < ?
-                    AND ZSUMMARY IS NOT NULL
-                    ORDER BY ZSTARTDATE ASC
-                    LIMIT 20
-                """, (now_apple, cut_apple))
-                rows = cur.fetchall()
-                conn.close()
-                if rows:
-                    events = []
-                    seen = set()
-                    for row in rows:
-                        title = row[0]
-                        if title in seen:
-                            continue
-                        seen.add(title)
-                        try:
-                            dt = datetime.datetime.fromtimestamp(row[1] + APPLE_EPOCH)
-                            time_str = dt.strftime("%A, %b %-d · %-I:%M %p")
-                            dt_key = dt.isoformat()
-                        except Exception:
-                            time_str = ""
-                            dt_key = title
-                        events.append({"title": title, "time": time_str,
-                                        "dt": dt_key, "location": "", "attendees": []})
-                    if events:
-                        log(f"  Calendar: {len(events)} events (sqlite)")
-                        return events[:8]
-            except Exception as e:
-                log(f"[CALENDAR] sqlite query failed: {e}")
-                conn.close()
-    except Exception as e:
-        log(f"[CALENDAR] sqlite method failed: {e}")
-
-    # ── METHOD 3: AppleScript fallback ──────────────────────────────────────
-    script = '''
-    set output to ""
-    set d1 to current date
-    set d2 to d1 + (7 * days)
-    tell application "Calendar"
-        set allCals to every calendar
-        repeat with c in allCals
-            try
-                set evList to (every event of c whose start date >= d1 and start date < d2)
-                repeat with e in evList
-                    set t to summary of e
-                    set s to start date of e
-                    set output to output & t & "~" & (s as string) & "||"
-                end repeat
-            end try
-        end repeat
-    end tell
-    return output
-    '''
-    try:
-        result = subprocess.run(["osascript", "-e", script],
-            capture_output=True, text=True, timeout=20)
-        if result.returncode != 0 or not result.stdout.strip():
+                            pass
+                    time_str = dt.strftime("%A, %b %-d · %-I:%M %p") if dt else time_raw
+                    dt_key = dt.isoformat() if dt else time_raw
+                except Exception:
+                    time_str = time_raw
+                    dt_key = time_raw
+                events.append({"title": title, "time": time_str,
+                                "dt": dt_key, "location": "", "attendees": []})
+            events.sort(key=lambda e: e.get("dt", ""))
+            log("  Calendar: " + str(len(events)) + " events (AppleScript)")
+            return events[:8]
+        else:
             log("[CALENDAR] AppleScript returned no data")
-            return []
-        events = []
-        seen = set()
-        for block in result.stdout.strip().split("||"):
-            block = block.strip()
-            if not block or "~" not in block:
-                continue
-            parts = block.split("~", 1)
-            title = parts[0].strip()
-            time_raw = parts[1].strip() if len(parts) > 1 else ""
-            if title in seen:
-                continue
-            seen.add(title)
-            try:
-                clean = time_raw.replace(" at ", " ")
-                dt = None
-                for fmt in ["%A, %B %d, %Y %I:%M:%S %p", "%A, %B %d, %Y %I:%M %p",
-                            "%A, %B %d, %Y %I %p", "%A, %B %d, %Y"]:
-                    try:
-                        dt = datetime.datetime.strptime(clean, fmt)
-                        break
-                    except:
-                        continue
-                time_str = dt.strftime("%A, %b %-d · %-I:%M %p") if dt else time_raw
-                dt_key = dt.isoformat() if dt else time_raw
-            except:
-                time_str = time_raw
-                dt_key = time_raw
-            events.append({"title": title, "time": time_str, "dt": dt_key,
-                            "location": "", "attendees": []})
-        events.sort(key=lambda e: e.get("dt", ""))
-        log(f"  Calendar: {len(events)} events (AppleScript)")
-        return events[:8]
     except Exception as ex:
-        log(f"[CALENDAR ERROR] {ex}")
-        return []
+        log("[CALENDAR ERROR] " + str(ex))
+    return []
+
 
 # ── TOP NEWS (RSS) ───────────────────────────────────────────────────────────
 def fetch_top_news():
@@ -593,7 +589,7 @@ def fetch_ai_news():
 def fetch_sfla_news():
     """Fetch top 5 South Florida local stories."""
     feeds = [
-        ("https://www.local10.com/rss/", "Local10 WPLG"),
+        ("https://www.nbcmiami.com/news/feed/", "NBC6 Miami"),
         ("https://www.nbcmiami.com/feed/", "NBC6 Miami"),
         ("https://www.fiercehealthcare.com/rss/xml", "Fierce Healthcare"),
         ("https://wsvn.com/feed/", "WSVN"),
@@ -1139,7 +1135,7 @@ def build_email_html(weather, metar, taf, markets, calendar_events, date_str,
 
     _expr_7 = section(7, "South Florida · Local", "#5856D6",
         "South Florida News",
-        "Live from Local10, NBC6, WSVN, and Fierce Healthcare.",
+        "Live from NBC6 Miami, WSVN, and Fierce Healthcare.",
         sfla_rows)
 
     # ── SECTION 8: Reddit Pulse ──────────────────────────────────────────
