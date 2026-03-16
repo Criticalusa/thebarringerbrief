@@ -181,15 +181,17 @@ def fetch_weather():
         cur   = data["current_condition"][0]
         today = data["weather"][0]
         return {
-            "temp_f":     cur["temp_F"],
-            "feels_like": cur["FeelsLikeF"],
-            "desc":       cur["weatherDesc"][0]["value"].strip(),
-            "wind_mph":   cur["windspeedMiles"],
-            "wind_dir":   cur["winddir16Point"],
-            "humidity":   cur["humidity"],
-            "uv":         cur["uvIndex"],
-            "high":       today["maxtempF"],
-            "low":        today["mintempF"],
+            "temp_f":         cur["temp_F"],
+            "feels_like":     cur["FeelsLikeF"],
+            "desc":           cur["weatherDesc"][0]["value"].strip(),
+            "wind_mph":       cur["windspeedMiles"],
+            "wind_dir":       cur["winddir16Point"],
+            "wind_deg":       cur.get("winddirDegree", "0"),
+            "wind_gust_mph":  cur.get("WindGustMiles", cur.get("windspeedMiles", "0")),
+            "humidity":       cur["humidity"],
+            "uv":             cur["uvIndex"],
+            "high":           today["maxtempF"],
+            "low":            today["mintempF"],
         }
     except Exception as e:
         log(f"[WEATHER ERROR] {e}")
@@ -364,9 +366,125 @@ def fetch_markets():
             log(f"[MARKET ERROR] {sym}: {e}")
     return markets
 
-# ── CALENDAR (macOS via AppleScript) ─────────────────────────────────────────
+# ── CALENDAR (macOS) ─────────────────────────────────────────────────────────
 def fetch_calendar():
-    """Fetch next 7 days of calendar events via faster AppleScript."""
+    """Fetch next 7 days of calendar events. Tries 3 methods in order:
+    1. icalBuddy (fastest, no app launch needed)
+    2. sqlite3 direct read of Calendar DB
+    3. AppleScript fallback (slowest)
+    """
+    import glob as _glob, sqlite3 as _sqlite3
+
+    now = datetime.datetime.now()
+    cutoff = now + datetime.timedelta(days=7)
+
+    # ── METHOD 1: icalBuddy ───────────────────────────────────────────────────
+    try:
+        result = subprocess.run(
+            ["/usr/local/bin/icalBuddy", "-b", "", "-n", "-ea",
+             "-iep", "title,datetime", "-df", "%Y-%m-%d", "-tf", "%H:%M",
+             "eventsFrom:today to:+7 days"],
+            capture_output=True, text=True, timeout=8
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            events = []
+            seen = set()
+            current_title = None
+            current_time = None
+            for line in result.stdout.strip().splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                # icalBuddy format: title on one line, datetime indented below
+                if line.startswith("•") or (not line.startswith(" ") and not line[0].isdigit()):
+                    current_title = line.lstrip("• ").strip()
+                    current_time = None
+                elif current_title and (line[0].isdigit() or line.startswith("20")):
+                    current_time = line
+                    key = current_title + current_time
+                    if key not in seen:
+                        seen.add(key)
+                        try:
+                            # Parse "2026-03-16 09:00"
+                            dt = datetime.datetime.strptime(current_time[:16], "%Y-%m-%d %H:%M")
+                            time_str = dt.strftime("%A, %b %-d · %-I:%M %p")
+                        except Exception:
+                            time_str = current_time
+                        events.append({"title": current_title, "time": time_str,
+                                        "dt": current_time, "location": "", "attendees": []})
+            if events:
+                events.sort(key=lambda e: e.get("dt", ""))
+                log(f"  Calendar: {len(events)} events (icalBuddy)")
+                return events[:8]
+    except FileNotFoundError:
+        pass  # icalBuddy not installed, try next
+    except Exception as e:
+        log(f"[CALENDAR] icalBuddy failed: {e}")
+
+    # ── METHOD 2: Read Calendar SQLite DB directly ───────────────────────────
+    try:
+        db_paths = _glob.glob(
+            os.path.expanduser("~/Library/Calendars/*.caldav/*/Events/*.ics")
+        )
+        # Find the actual CalendarStore DB
+        store_db = os.path.expanduser(
+            "~/Library/Calendars/Calendar Cache"
+        )
+        if not os.path.exists(store_db):
+            store_db = None
+            # Try finding any .sqlitedb
+            dbs = _glob.glob(os.path.expanduser("~/Library/Calendars/**/*.sqlitedb"), recursive=True)
+            if dbs:
+                store_db = dbs[0]
+
+        if store_db and os.path.exists(store_db):
+            now_ts = now.timestamp()
+            cutoff_ts = cutoff.timestamp()
+            conn = _sqlite3.connect(store_db, timeout=5)
+            conn.row_factory = _sqlite3.Row
+            cur = conn.cursor()
+            # CalendarStore uses CoreData timestamps (seconds since 2001-01-01)
+            APPLE_EPOCH = 978307200  # 2001-01-01 00:00:00 UTC in Unix time
+            now_apple = now_ts - APPLE_EPOCH
+            cut_apple = cutoff_ts - APPLE_EPOCH
+            try:
+                cur.execute("""
+                    SELECT ZSUMMARY, ZSTARTDATE, ZENDDATE
+                    FROM ZCALENDARITEM
+                    WHERE ZSTARTDATE >= ? AND ZSTARTDATE < ?
+                    AND ZSUMMARY IS NOT NULL
+                    ORDER BY ZSTARTDATE ASC
+                    LIMIT 20
+                """, (now_apple, cut_apple))
+                rows = cur.fetchall()
+                conn.close()
+                if rows:
+                    events = []
+                    seen = set()
+                    for row in rows:
+                        title = row[0]
+                        if title in seen:
+                            continue
+                        seen.add(title)
+                        try:
+                            dt = datetime.datetime.fromtimestamp(row[1] + APPLE_EPOCH)
+                            time_str = dt.strftime("%A, %b %-d · %-I:%M %p")
+                            dt_key = dt.isoformat()
+                        except Exception:
+                            time_str = ""
+                            dt_key = title
+                        events.append({"title": title, "time": time_str,
+                                        "dt": dt_key, "location": "", "attendees": []})
+                    if events:
+                        log(f"  Calendar: {len(events)} events (sqlite)")
+                        return events[:8]
+            except Exception as e:
+                log(f"[CALENDAR] sqlite query failed: {e}")
+                conn.close()
+    except Exception as e:
+        log(f"[CALENDAR] sqlite method failed: {e}")
+
+    # ── METHOD 3: AppleScript fallback ──────────────────────────────────────
     script = '''
     set output to ""
     set d1 to current date
@@ -390,6 +508,7 @@ def fetch_calendar():
         result = subprocess.run(["osascript", "-e", script],
             capture_output=True, text=True, timeout=20)
         if result.returncode != 0 or not result.stdout.strip():
+            log("[CALENDAR] AppleScript returned no data")
             return []
         events = []
         seen = set()
@@ -414,10 +533,14 @@ def fetch_calendar():
                     except:
                         continue
                 time_str = dt.strftime("%A, %b %-d · %-I:%M %p") if dt else time_raw
+                dt_key = dt.isoformat() if dt else time_raw
             except:
                 time_str = time_raw
-            events.append({"title": title, "time": time_str, "location": "", "attendees": []})
-        events.sort(key=lambda e: e["time"])
+                dt_key = time_raw
+            events.append({"title": title, "time": time_str, "dt": dt_key,
+                            "location": "", "attendees": []})
+        events.sort(key=lambda e: e.get("dt", ""))
+        log(f"  Calendar: {len(events)} events (AppleScript)")
         return events[:8]
     except Exception as ex:
         log(f"[CALENDAR ERROR] {ex}")
@@ -622,22 +745,84 @@ def weather_icon(desc):
     if 'wind' in d: return '💨'
     return '🌤️'
 
+# ── WIND ARROW HELPER ────────────────────────────────────────────────────────
+def wind_arrow_html(wdir, wspd, wgst=0, size=28):
+    """Return an SVG wind arrow pointing FROM the wind direction, with speed/gust."""
+    try:
+        deg = int(wdir) if str(wdir).isdigit() else 0
+    except Exception:
+        deg = 0
+    # Arrow points INTO the direction the wind is going TO (i.e. rotate by deg)
+    # We draw an upward arrow in SVG then rotate it
+    rotate = deg  # 0=N, 90=E, 180=S, 270=W
+    s = str(size)
+    half = str(size // 2)
+    tip_y = str(int(size * 0.12))
+    tail_y = str(int(size * 0.88))
+    bar_y = str(int(size * 0.55))
+    lx = str(int(size * 0.30))
+    rx = str(int(size * 0.70))
+    shaft_x = str(int(size * 0.50))
+    # Speed color: green < 15kt, orange 15-25kt, red > 25kt
+    try:
+        spd = int(wspd)
+    except Exception:
+        spd = 0
+    if spd >= 25:
+        arrow_color = "#CC0000"
+    elif spd >= 15:
+        arrow_color = "#FF9500"
+    else:
+        arrow_color = "#007AFF"
+    svg = (
+        '<svg width="' + s + '" height="' + s + '" viewBox="0 0 ' + s + ' ' + s + '" '
+        'style="display:inline-block;vertical-align:middle;" '
+        'xmlns="http://www.w3.org/2000/svg">'
+        '<g transform="rotate(' + str(rotate) + ' ' + half + ' ' + half + ')">'
+        # Shaft
+        '<line x1="' + shaft_x + '" y1="' + tail_y + '" x2="' + shaft_x + '" y2="' + tip_y + '" '
+        'stroke="' + arrow_color + '" stroke-width="2.2" stroke-linecap="round"/>'
+        # Arrowhead (triangle pointing up)
+        '<polygon points="' + half + ',' + tip_y + ' ' + lx + ',' + bar_y + ' ' + rx + ',' + bar_y + '" '
+        'fill="' + arrow_color + '"/>'
+        '</g>'
+        '</svg>'
+    )
+    # Speed/gust text
+    try:
+        gust_int = int(wgst)
+    except Exception:
+        gust_int = 0
+    spd_str = str(spd) + "kt"
+    if gust_int > 0:
+        spd_str += " G" + str(gust_int)
+    return svg, spd_str, arrow_color
+
 # ── METAR HTML ────────────────────────────────────────────────────────────────
 def metar_rows_html(metar):
     rows = ""
-    for apt in ["KFLL","KFXE","KPMP"]:
+    for apt in ["KFLL", "KFXE", "KPMP"]:
         m = metar.get(apt)
-        if not m: continue
+        if not m:
+            continue
         cat = m["cat"]
-        cat_color = {"VFR":"#34C759","MVFR":"#007AFF","IFR":"#CC0000","LIFR":"#5856D6"}.get(cat,"#8A8A8E")
-        rows += (
-            '<tr>'
-            '<td style="font-family:\'Courier New\',monospace;font-size:11px;font-weight:700;color:#1D1D1F;padding:5px 14px 5px 0;width:48px;">' + apt + '</td>'
-            '<td style="font-family:\'Courier New\',monospace;font-size:10px;color:#3A3A3C;padding:5px 14px 5px 0;">' + str(m['temp']) + '°C &nbsp;' + str(m['cover']) + ' &nbsp;' + str(m['wdir']) + '/' + str(m['wspd']) + 'kt</td>'
-            '<td style="padding:5px 0;"><span style="font-family:Arial,sans-serif;font-size:9px;font-weight:700;color:' + cat_color + ';">● ' + cat + '</span></td>'
-            '</tr>'
-        )
-    return rows or "<tr><td style='font-size:11px;color:#8A8A8E;'>METAR unavailable</td></tr>"
+        colors = {"VFR": "#34C759", "MVFR": "#007AFF", "IFR": "#CC0000", "LIFR": "#5856D6"}
+        cat_color = colors.get(cat, "#8A8A8E")
+        arrow_svg, spd_str, arrow_color = wind_arrow_html(m.get("wdir", 0), m.get("wspd", 0), 0, 22)
+        s1 = "font-family:monospace;font-size:11px;font-weight:700;color:#1D1D1F;padding:5px 10px 5px 0;width:44px;"
+        s2 = "font-family:Arial,sans-serif;font-size:10px;color:#3A3A3C;padding:5px 10px 5px 0;"
+        s3 = "padding:5px 10px 5px 0;white-space:nowrap;"
+        s4 = "font-family:monospace;font-size:10px;font-weight:700;color:"
+        s5 = "padding:5px 0;"
+        s6 = "font-family:Arial,sans-serif;font-size:9px;font-weight:700;color:"
+        td1 = "<td style=\"" + s1 + "\">" + apt + "</td>"
+        td2 = "<td style=\"" + s2 + "\">" + str(m["temp"]) + "&#176;C &nbsp;&#183;&nbsp; " + str(m["cover"]) + "</td>"
+        td3 = "<td style=\"" + s3 + "\">" + arrow_svg + " <span style=\"" + s4 + arrow_color + ";font-weight:700;\">" + spd_str + "</span></td>"
+        td4 = "<td style=\"" + s5 + "\"><span style=\"" + s6 + cat_color + ";\">&#9679; " + cat + "</span></td>"
+        rows += "<tr>" + td1 + td2 + td3 + td4 + "</tr>"
+    if not rows:
+        return "<tr><td style='font-size:11px;color:#8A8A8E;'>METAR unavailable</td></tr>"
+    return rows
 
 # ── NEWS ROW BUILDER ─────────────────────────────────────────────────────────
 def build_news_rows(items, label_color="#CC0000"):
@@ -682,6 +867,20 @@ def build_email_html(weather, metar, taf, markets, calendar_events, date_str,
 
     # Weather block
     if weather:
+        wx_arrow_svg, wx_spd_str, wx_arrow_color = wind_arrow_html(
+            weather.get('wind_deg', 0), weather.get('wind_mph', 0),
+            weather.get('wind_gust_mph', 0), 20)
+        wx_gust = weather.get('wind_gust_mph', '0')
+        try:
+            wx_gust_int = int(str(wx_gust).split('.')[0])
+        except Exception:
+            wx_gust_int = 0
+        wx_gust_str = (' G' + str(wx_gust_int) + ' mph') if wx_gust_int > int(str(weather.get('wind_mph', 0))) else ''
+        wx_wind_html = (
+            wx_arrow_svg +
+            ' <span style="font-family:\'Courier New\',monospace;font-size:9px;color:' + wx_arrow_color + ';font-weight:700;">'
+            + str(weather['wind_mph']) + ' mph ' + weather['wind_dir'] + wx_gust_str + '</span>'
+        )
         wx_html = (
             '<td style="vertical-align:top;padding-right:24px;border-right:1px solid #E5E5EA;">'
             '<div style="font-family:Georgia,serif;font-size:52px;font-weight:200;color:#1D1D1F;line-height:1;letter-spacing:-2px;">'
@@ -690,7 +889,7 @@ def build_email_html(weather, metar, taf, markets, calendar_events, date_str,
             + weather_icon(weather['desc']) + ' ' + weather['desc'] + '</div>'
             '<div style="font-family:\'Courier New\',monospace;font-size:9px;color:#3A3A3C;margin-top:6px;line-height:2.0;">'
             'Hi ' + weather['high'] + '° / Lo ' + weather['low'] + '° &nbsp;·&nbsp; UV ' + weather['uv'] + '<br>'
-            'Wind ' + weather['wind_mph'] + ' mph ' + weather['wind_dir'] + '<br>'
+            + wx_wind_html + '<br>'
             'Feels like ' + weather['feels_like'] + '°F'
             '</div>'
             '<div style="font-family:\'Courier New\',monospace;font-size:8px;color:#8A8A8E;margin-top:8px;letter-spacing:0.14em;text-transform:uppercase;">Weston, FL</div>'
