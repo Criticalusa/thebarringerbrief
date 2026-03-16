@@ -395,7 +395,7 @@ def fetch_calendar():
         try:
             result = subprocess.run(
                 ["osascript", "-e", script],
-                capture_output=True, text=True, timeout=8
+                capture_output=True, text=True, timeout=10
             )
             if result.returncode != 0 or not result.stdout.strip():
                 continue
@@ -485,6 +485,7 @@ def fetch_sfla_news():
     """Fetch top 5 South Florida local stories."""
     feeds = [
         ("https://www.nbcmiami.com/news/feed/", "NBC6 Miami"),
+        ("https://wsvn.com/feed/", "WSVN 7"),
         ("https://www.nbcmiami.com/feed/", "NBC6 Miami"),
         ("https://www.fiercehealthcare.com/rss/xml", "Fierce Healthcare"),
         ("https://wsvn.com/feed/", "WSVN"),
