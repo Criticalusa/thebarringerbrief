@@ -368,163 +368,37 @@ def fetch_markets():
 
 # ── CALENDAR (macOS) ─────────────────────────────────────────────────────────
 def fetch_calendar():
-    """Fetch next 7 days of events. Tries icalBuddy, then ICS files, then AppleScript."""
-    import glob as _glob
-
-    now = datetime.datetime.now()
-    cutoff = now + datetime.timedelta(days=7)
-
-    # -- METHOD 1: icalBuddy --
-    ical_paths = ["/usr/local/bin/icalBuddy", "/opt/homebrew/bin/icalBuddy", "/usr/bin/icalBuddy"]
-    ical_bin = next((p for p in ical_paths if os.path.exists(p)), None)
-    if ical_bin:
+    """Fetch next 7 days from specific calendars only."""
+    target_calendars = ["Personal", "On Call", "Kids Calendar", "Calendar"]
+    events = []
+    seen = set()
+    for cal_name in target_calendars:
+        safe = cal_name.replace('"', '\\"')
+        script = (
+            'set output to ""\n'
+            'set d1 to current date\n'
+            'set d2 to d1 + (7 * days)\n'
+            'tell application "Calendar"\n'
+            '    try\n'
+            '        tell calendar "' + safe + '"\n'
+            '            set evList to (every event whose start date >= d1 and start date < d2)\n'
+            '            repeat with e in evList\n'
+            '                set t to summary of e\n'
+            '                set s to start date of e\n'
+            '                set output to output & t & "~" & (s as string) & "||"\n'
+            '            end repeat\n'
+            '        end tell\n'
+            '    end try\n'
+            'end tell\n'
+            'return output'
+        )
         try:
             result = subprocess.run(
-                [ical_bin, "-b", "", "-n", "-ea", "-iep", "title,datetime",
-                 "-df", "%Y-%m-%d", "-tf", "%H:%M", "eventsFrom:today to:+7 days"],
+                ["osascript", "-e", script],
                 capture_output=True, text=True, timeout=8
             )
-            if result.returncode == 0 and result.stdout.strip():
-                events = []
-                seen = set()
-                cur_title = None
-                for ln in result.stdout.strip().splitlines():
-                    stripped = ln.strip()
-                    if not stripped or stripped.startswith("No ") or stripped.startswith("*"):
-                        continue
-                    if not ln[0:1].isspace() and not stripped[0:1].isdigit():
-                        cur_title = stripped.lstrip("- ").strip()
-                    elif cur_title and (stripped[0:2].isdigit() or stripped.startswith("20")):
-                        key = cur_title + stripped
-                        if key not in seen:
-                            seen.add(key)
-                            try:
-                                dt = datetime.datetime.strptime(stripped[:16], "%Y-%m-%d %H:%M")
-                                time_str = dt.strftime("%A, %b %-d · %-I:%M %p")
-                                dt_key = dt.isoformat()
-                            except Exception:
-                                time_str = stripped
-                                dt_key = stripped
-                            events.append({"title": cur_title, "time": time_str,
-                                           "dt": dt_key, "location": "", "attendees": []})
-                if events:
-                    events.sort(key=lambda e: e.get("dt", ""))
-                    log("  Calendar: " + str(len(events)) + " events (icalBuddy)")
-                    return events[:8]
-        except Exception as e:
-            log("[CALENDAR] icalBuddy error: " + str(e))
-
-    # -- METHOD 2: Parse .ics files directly --
-    try:
-        ics_files = _glob.glob(os.path.expanduser("~/Library/Calendars/**/*.ics"), recursive=True)
-        events = []
-        seen = set()
-        now_dt = now.replace(hour=0, minute=0, second=0, microsecond=0)  # start of today
-        cut_dt = cutoff
-        for fpath in ics_files:
-            try:
-                with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
-                    raw = f.read()
-            except Exception:
+            if result.returncode != 0 or not result.stdout.strip():
                 continue
-            blocks = raw.split("BEGIN:VEVENT")
-            for block in blocks[1:]:
-                end_idx = block.find("END:VEVENT")
-                if end_idx >= 0:
-                    block = block[:end_idx]
-                block = block.replace("\r\n ", "").replace("\n ", "")
-                props = {}
-                for ln in block.strip().splitlines():
-                    if ":" in ln:
-                        # Handle DTSTART;TZID=America/New_York:20260316T090000
-                        # Split on first colon AFTER any param section
-                        semi = ln.find(";")
-                        colon = ln.find(":")
-                        if semi >= 0 and semi < colon:
-                            # Has params — key is before semicolon, value after last colon
-                            k = ln[:semi].strip()
-                            v = ln[ln.rfind(":")+1:].strip()
-                        else:
-                            k, _, v = ln.partition(":")
-                            k = k.strip()
-                            v = v.strip()
-                        props[k] = v
-                summary = props.get("SUMMARY", "")
-                dtstart_raw = props.get("DTSTART", "")
-                if not summary or not dtstart_raw:
-                    continue
-                s = dtstart_raw.replace("Z", "")
-                # Strip timezone offset e.g. -0500 or +0200
-                for _tz in ["+", "-"]:
-                    if _tz in s[8:]:
-                        s = s[:s.index(_tz, 8)]
-                dt = None
-                if "T" in s:
-                    # e.g. 20260316T090000
-                    date_part, _, time_part = s.partition("T")
-                    try:
-                        dt = datetime.datetime(
-                            int(date_part[0:4]), int(date_part[4:6]), int(date_part[6:8]),
-                            int(time_part[0:2]) if len(time_part) >= 2 else 0,
-                            int(time_part[2:4]) if len(time_part) >= 4 else 0
-                        )
-                    except Exception:
-                        pass
-                if dt is None and len(s) == 8:
-                    # All-day event e.g. 20260316
-                    try:
-                        dt = datetime.datetime(int(s[0:4]), int(s[4:6]), int(s[6:8]), 0, 0)
-                    except Exception:
-                        pass
-                if dt is None:
-                    continue
-                dt_naive = dt.replace(tzinfo=None)
-                if dt_naive < now_dt or dt_naive > cut_dt:
-                    continue
-                key = summary + dt_naive.isoformat()
-                if key in seen:
-                    continue
-                seen.add(key)
-                time_str = dt_naive.strftime("%A, %b %-d · %-I:%M %p")
-                events.append({"title": summary, "time": time_str,
-                                "dt": dt_naive.isoformat(), "location": "", "attendees": []})
-        if events:
-            events.sort(key=lambda e: e.get("dt", ""))
-            log("  Calendar: " + str(len(events)) + " events (ics files)")
-            return events[:8]
-        elif ics_files:
-            log("[CALENDAR] Parsed " + str(len(ics_files)) + " .ics files, 0 upcoming events")
-        else:
-            log("[CALENDAR] No .ics files found")
-    except Exception as e:
-        log("[CALENDAR] ics parse error: " + str(e))
-
-    # -- METHOD 3: AppleScript (last resort, 15s timeout) --
-    script = (
-        'set output to ""\n'
-        'set d1 to current date\n'
-        'set d2 to d1 + (7 * days)\n'
-        'tell application "Calendar"\n'
-        '    set allCals to every calendar\n'
-        '    repeat with c in allCals\n'
-        '        try\n'
-        '            set evList to (every event of c whose start date >= d1 and start date < d2)\n'
-        '            repeat with e in evList\n'
-        '                set t to summary of e\n'
-        '                set s to start date of e\n'
-        '                set output to output & t & "~" & (s as string) & "||"\n'
-        '            end repeat\n'
-        '        end try\n'
-        '    end repeat\n'
-        'end tell\n'
-        'return output'
-    )
-    try:
-        result = subprocess.run(["osascript", "-e", script],
-            capture_output=True, text=True, timeout=15)
-        if result.returncode == 0 and result.stdout.strip():
-            events = []
-            seen = set()
             for block in result.stdout.strip().split("||"):
                 block = block.strip()
                 if not block or "~" not in block:
@@ -532,12 +406,13 @@ def fetch_calendar():
                 parts = block.split("~", 1)
                 title = parts[0].strip()
                 time_raw = parts[1].strip() if len(parts) > 1 else ""
-                if title in seen:
+                key = title + time_raw
+                if key in seen:
                     continue
-                seen.add(title)
+                seen.add(key)
+                dt = None
                 try:
                     clean = time_raw.replace(" at ", " ")
-                    dt = None
                     for fmt in ["%A, %B %d, %Y %I:%M:%S %p", "%A, %B %d, %Y %I:%M %p",
                                 "%A, %B %d, %Y %I %p", "%A, %B %d, %Y"]:
                         try:
@@ -545,21 +420,21 @@ def fetch_calendar():
                             break
                         except Exception:
                             pass
-                    time_str = dt.strftime("%A, %b %-d · %-I:%M %p") if dt else time_raw
-                    dt_key = dt.isoformat() if dt else time_raw
                 except Exception:
-                    time_str = time_raw
-                    dt_key = time_raw
+                    pass
+                time_str = dt.strftime("%A, %b %-d · %-I:%M %p") if dt else time_raw
+                dt_key = dt.isoformat() if dt else time_raw
                 events.append({"title": title, "time": time_str,
-                                "dt": dt_key, "location": "", "attendees": []})
-            events.sort(key=lambda e: e.get("dt", ""))
-            log("  Calendar: " + str(len(events)) + " events (AppleScript)")
-            return events[:8]
-        else:
-            log("[CALENDAR] AppleScript returned no data")
-    except Exception as ex:
-        log("[CALENDAR ERROR] " + str(ex))
-    return []
+                                "dt": dt_key, "location": "", "attendees": [],
+                                "calendar": cal_name})
+        except subprocess.TimeoutExpired:
+            log("[CALENDAR] Timeout: " + cal_name)
+        except Exception as e:
+            log("[CALENDAR] Error on " + cal_name + ": " + str(e))
+
+    events.sort(key=lambda e: e.get("dt", ""))
+    log("  Calendar: " + str(len(events)) + " events")
+    return events[:8]
 
 
 # ── TOP NEWS (RSS) ───────────────────────────────────────────────────────────
