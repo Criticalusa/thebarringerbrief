@@ -220,49 +220,65 @@ def fetch_metar():
 
 # ── TAF ──────────────────────────────────────────────────────────────────────
 def fetch_taf():
-    """Fetch TAF for KFLL to build Go/No-Go recommendation."""
+    """Fetch TAF for KFLL via raw text endpoint (fast), parse with regex."""
+    import re
     try:
         req = urllib.request.Request(
-            "https://aviationweather.gov/api/data/taf?ids=KFLL&format=json",
+            "https://aviationweather.gov/api/data/taf?ids=KFLL&format=raw",
             headers={"User-Agent": "BarringerBrief/1.0"}
         )
-        with urllib.request.urlopen(req, timeout=10) as r:
-            data = json.loads(r.read())
-        if not data:
+        with urllib.request.urlopen(req, timeout=8) as r:
+            raw_text = r.read().decode("utf-8").strip()
+        if not raw_text:
             return None
-        taf = data[0]
-        raw_text = taf.get("rawTAF", "")
-        # Parse forecast groups for wind/vis/ceiling
-        def _safe_num(val, default=0):
-            """Coerce a value to float, returning default if conversion fails."""
-            if val is None:
-                return default
-            try:
-                return float(val)
-            except (ValueError, TypeError):
-                return default
+
+        # ── Parse raw TAF text with regex ──────────────────────────────────
+        # Split into forecast groups at FM, TEMPO, BECMG, PROB lines
+        lines = " ".join(raw_text.split())  # flatten newlines
+        groups = re.split(r'(?=FM\d{6}|TEMPO|BECMG|PROB\d{2})', lines)
 
         forecasts = []
-        for fcst in taf.get("fcsts", taf.get("forecast", [])):
-            wind_spd = _safe_num(fcst.get("wspd"), 0)
-            wind_gust = _safe_num(fcst.get("wgst"), 0)
-            vis = _safe_num(fcst.get("visib"), 6)
-            # Ceiling: lowest broken or overcast layer
+        for grp in groups:
+            grp = grp.strip()
+            if not grp:
+                continue
+            # Wind: e.g. 17012G23KT or 19017KT or VRB05KT
+            wind_m = re.search(r'(VRB|\d{3})(\d{2,3})(?:G(\d{2,3}))?KT', grp)
+            wspd = int(wind_m.group(2)) if wind_m else 0
+            wgst = int(wind_m.group(3)) if (wind_m and wind_m.group(3)) else 0
+            # Visibility: P6SM or 1/2SM or 3SM etc.
+            vis = 6.0
+            vis_m = re.search(r'(P6SM|M1/4SM|(\d+)(?:\s+(\d+)/(\d+))?SM|(\d+)/(\d+)SM)', grp)
+            if vis_m:
+                txt = vis_m.group(0)
+                if txt == "P6SM":
+                    vis = 6.0
+                elif txt == "M1/4SM":
+                    vis = 0.25
+                else:
+                    # e.g. "3SM" or "1 1/2SM" or "1/2SM"
+                    num_m = re.match(r'(\d+)(?:\s+(\d+)/(\d+))?SM', txt)
+                    frac_m = re.match(r'(\d+)/(\d+)SM', txt)
+                    if num_m:
+                        vis = float(num_m.group(1))
+                        if num_m.group(2) and num_m.group(3):
+                            vis += float(num_m.group(2)) / float(num_m.group(3))
+                    elif frac_m:
+                        vis = float(frac_m.group(1)) / float(frac_m.group(2))
+            # Ceiling: lowest BKN or OVC layer
             ceil = 99999
-            for cld in fcst.get("clouds", []):
-                cover = cld.get("cover", "")
-                base = _safe_num(cld.get("base"), 99999)
-                if cover in ("BKN", "OVC") and base < ceil:
+            for cld_m in re.finditer(r'(BKN|OVC)(\d{3})', grp):
+                base = int(cld_m.group(2)) * 100
+                if base < ceil:
                     ceil = base
-            forecasts.append({
-                "wspd": wind_spd,
-                "wgst": wind_gust,
-                "vis": vis,
-                "ceil": ceil,
-            })
-        # Determine Go/No-Go for next ~12h (first few forecast periods)
+            forecasts.append({"wspd": wspd, "wgst": wgst, "vis": vis, "ceil": ceil})
+
+        if not forecasts:
+            return None
+
+        # Worst conditions across first 4 groups (~12h)
         worst_ceil = 99999
-        worst_vis = 99
+        worst_vis = 99.0
         worst_wind = 0
         worst_gust = 0
         for f in forecasts[:4]:
@@ -274,41 +290,37 @@ def fetch_taf():
                 worst_wind = f["wspd"]
             if f["wgst"] > worst_gust:
                 worst_gust = f["wgst"]
+
         # Decision logic
+        reasons = []
         if worst_ceil < 500 or worst_vis < 1 or worst_gust > 35:
             status = "NO-GO"
             status_color = "#CC0000"
-            reason = ""
-            reasons = []
             if worst_ceil < 500:
                 reasons.append("Ceilings below 500 ft")
             if worst_vis < 1:
                 reasons.append("Visibility below 1 SM")
             if worst_gust > 35:
                 reasons.append("Gusts " + str(worst_gust) + " kt")
-            reason = " / ".join(reasons)
         elif worst_ceil < 1000 or worst_vis < 3 or worst_gust > 25:
             status = "MARGINAL"
             status_color = "#FF9500"
-            reasons = []
             if worst_ceil < 1000:
                 reasons.append("Ceilings " + str(worst_ceil) + " ft")
             if worst_vis < 3:
                 reasons.append("Vis " + str(worst_vis) + " SM")
             if worst_gust > 25:
                 reasons.append("Gusts " + str(worst_gust) + " kt")
-            reason = " / ".join(reasons)
         else:
-            status = "GO — VFR"
+            status = "GO \u2014 VFR"
             status_color = "#34C759"
-            reason = "Winds " + str(worst_wind) + " kt"
-            if worst_gust > 0:
-                reason += " G" + str(worst_gust)
-            reason += " / Vis " + str(worst_vis) + "+ SM"
+            reasons.append("Winds " + str(worst_wind) + (" G" + str(worst_gust) if worst_gust else "") + " kt")
+            reasons.append("Vis " + str(worst_vis) + "+ SM")
+
         return {
             "status": status,
             "status_color": status_color,
-            "reason": reason,
+            "reason": " / ".join(reasons),
             "raw": raw_text,
             "worst_ceil": worst_ceil,
             "worst_vis": worst_vis,
@@ -360,19 +372,23 @@ def fetch_calendar():
     set d1 to current date
     set d2 to d1 + (7 * days)
     tell application "Calendar"
-        repeat with c in (every calendar)
-            repeat with e in (every event of c whose start date >= d1 and start date < d2)
-                set t to summary of e
-                set s to start date of e
-                set output to output & t & "~" & (s as string) & "||"
-            end repeat
+        set allCals to every calendar
+        repeat with c in allCals
+            try
+                set evList to (every event of c whose start date >= d1 and start date < d2)
+                repeat with e in evList
+                    set t to summary of e
+                    set s to start date of e
+                    set output to output & t & "~" & (s as string) & "||"
+                end repeat
+            end try
         end repeat
     end tell
     return output
     '''
     try:
         result = subprocess.run(["osascript", "-e", script],
-            capture_output=True, text=True, timeout=45)
+            capture_output=True, text=True, timeout=20)
         if result.returncode != 0 or not result.stdout.strip():
             return []
         events = []
@@ -429,7 +445,7 @@ def fetch_health_news():
     feeds = [
         ("https://www.statnews.com/feed/", "STAT News"),
         ("https://rss.politico.com/healthcare.xml", "Politico Health"),
-        ("https://www.healthaffairs.org/rss/current", "Health Affairs"),
+        ("https://www.medpagetoday.com/rss/headlines.xml", "MedPage Today"),
         ("https://kffhealthnews.org/feed/", "Kaiser Health"),
     ]
     all_items = []
@@ -443,7 +459,7 @@ def fetch_ai_news():
     feeds = [
         ("https://techcrunch.com/category/artificial-intelligence/feed/", "TechCrunch AI"),
         ("https://www.technologyreview.com/feed/", "MIT Tech Review"),
-        ("https://www.theverge.com/ai-artificial-intelligence/rss/index.xml", "The Verge AI"),
+        ("https://www.theverge.com/rss/ai-artificial-intelligence/index.xml", "The Verge AI"),
     ]
     all_items = []
     for url, source in feeds:
@@ -454,9 +470,9 @@ def fetch_ai_news():
 def fetch_sfla_news():
     """Fetch top 5 South Florida local stories."""
     feeds = [
-        ("https://www.wlrn.org/rss.xml", "WLRN"),
+        ("https://www.local10.com/rss/", "Local10 WPLG"),
         ("https://www.nbcmiami.com/feed/", "NBC6 Miami"),
-        ("https://www.cbsnews.com/miami/feed/", "CBS Miami"),
+        ("https://www.fiercehealthcare.com/rss/xml", "Fierce Healthcare"),
         ("https://wsvn.com/feed/", "WSVN"),
     ]
     all_items = []
@@ -866,7 +882,7 @@ def build_email_html(weather, metar, taf, markets, calendar_events, date_str,
 
     _expr_4 = section(4, "Medical Frontier · Health", "#007AFF",
         "Medical & Health News",
-        "Live from STAT News, Politico Health, Health Affairs, and Kaiser Health.",
+        "Live from STAT News, Politico Health, MedPage Today, and Kaiser Health.",
         health_rows)
 
     # ── SECTION 5: Build Log / AI & Tech ─────────────────────────────────
@@ -924,7 +940,7 @@ def build_email_html(weather, metar, taf, markets, calendar_events, date_str,
 
     _expr_7 = section(7, "South Florida · Local", "#5856D6",
         "South Florida News",
-        "Live from WLRN, NBC6, CBS Miami, and WSVN.",
+        "Live from Local10, NBC6, WSVN, and Fierce Healthcare.",
         sfla_rows)
 
     # ── SECTION 8: Reddit Pulse ──────────────────────────────────────────
