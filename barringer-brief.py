@@ -501,50 +501,99 @@ def fetch_sfla_news():
         all_items.extend(_fetch_rss(url, source))
     return _sort_and_limit(all_items, 5)
 
-# ── SOCIAL SIGNAL (Nitter RSS) ──────────────────────────────────────────────
+# ── SOCIAL SIGNAL (Direct RSS — Substack, YouTube, Blog) ─────────────────────
 def fetch_social_signal():
-    """Fetch latest posts from social accounts via Nitter RSS."""
-    accounts = {
-        "Aaron Parnas":    "AaronParnas",
-        "MeidasTouch":     "MeidasTouch",
-        "David Pakman":    "dpakman",
-        "James Li":        "5149jamesli",
-        "Mehdi Hasan":     "mehdirhasan",
-        "Prof. Jiang":     "xueqinjiang",
-        "Scott Galloway":  "profgalloway",
-        "Jessica Tarlov":  "JessicaTarlov",
-        "Sam Seder":       "SamSeder",
-        "Seth Abramson":   "SethAbramson",
-        "Glenn Greenwald": "ggreenwald",
-    }
-    nitter_bases = [
-        "https://nitter.net",
-        "https://nitter.privacydev.net",
-        "https://nitter.poast.org",
+    """Fetch latest content from political commentators via direct RSS feeds.
+    Uses Substack, YouTube, and blog feeds — no Nitter dependency.
+    Falls back to Nitter only if primary feed fails.
+    """
+    # Primary RSS feeds — ordered by preference
+    # Format: (name, primary_url, fallback_url_or_None)
+    feeds = [
+        ("Aaron Parnas",
+         "https://aaronparnas.substack.com/feed",
+         None),
+        ("MeidasTouch",
+         "https://www.youtube.com/feeds/videos.xml?channel_id=UCJgZJZZbnLFPr5GJdCuIwpA",
+         None),
+        ("David Pakman",
+         "https://www.youtube.com/feeds/videos.xml?channel_id=UCvixJtaXuNdMPUGdOPcY8Ag",
+         None),
+        ("James Li",
+         "https://www.youtube.com/feeds/videos.xml?channel_id=UCUXv-vcvziSpg2RgfeY9-EQ",
+         None),
+        ("Mehdi Hasan",
+         "https://mehdihasan.substack.com/feed",
+         None),
+        ("Prof. Jiang",
+         "https://www.youtube.com/feeds/videos.xml?channel_id=UCoocsqxXtMMLq-Tnp4rJUXA",
+         None),
+        ("Scott Galloway",
+         "https://www.profgalloway.com/feed/",
+         None),
+        ("Jessica Tarlov",
+         "https://jessicatarlov.substack.com/feed",
+         None),
+        ("Sam Seder",
+         "https://www.youtube.com/feeds/videos.xml?channel_id=UC-3jIAlnQmbbVMV6gR7K8aQ",
+         None),
+        ("Seth Abramson",
+         "https://sethabramson.substack.com/feed",
+         None),
+        ("Glenn Greenwald",
+         "https://greenwald.substack.com/feed",
+         None),
     ]
+
     results = []
-    for name, handle in accounts.items():
+    for name, primary_url, fallback_url in feeds:
         post = None
-        for base in nitter_bases:
+        urls_to_try = [u for u in [primary_url, fallback_url] if u]
+        for url in urls_to_try:
             try:
-                url = base + "/" + handle + "/rss"
-                req = urllib.request.Request(url, headers={"User-Agent": "BarringerBrief/1.0"})
+                req = urllib.request.Request(
+                    url, headers={"User-Agent": "BarringerBrief/1.0"})
                 with urllib.request.urlopen(req, timeout=10) as r:
                     raw = r.read()
                 root = ET.fromstring(raw)
-                item = root.find(".//item")
+                # Handle both RSS <item> and Atom <entry>
+                item = root.find(".//{http://www.w3.org/2005/Atom}entry")
+                if item is None:
+                    item = root.find(".//item")
                 if item is not None:
-                    title_el = item.find("title")
-                    desc_el = item.find("description")
-                    pub_el = item.find("pubDate")
+                    # Title
+                    title_el = (item.find("{http://www.w3.org/2005/Atom}title")
+                                or item.find("title"))
+                    # Description / summary
+                    desc_el = (item.find("{http://www.w3.org/2005/Atom}summary")
+                               or item.find("description")
+                               or item.find("{http://www.w3.org/2005/Atom}content"))
+                    # Published date
+                    pub_el = (item.find("{http://www.w3.org/2005/Atom}published")
+                              or item.find("pubDate")
+                              or item.find("{http://www.w3.org/2005/Atom}updated"))
+                    # Link
+                    link = ""
+                    link_el = item.find("{http://www.w3.org/2005/Atom}link")
+                    if link_el is not None:
+                        link = link_el.get("href", "")
+                    else:
+                        link_el = item.find("link")
+                        if link_el is not None and link_el.text:
+                            link = link_el.text.strip()
+
+                    title_text = ""
+                    if title_el is not None and title_el.text:
+                        title_text = title_el.text.strip()
+
                     text = ""
                     if desc_el is not None and desc_el.text:
-                        text = desc_el.text.strip()
-                    elif title_el is not None and title_el.text:
-                        text = title_el.text.strip()
-                    text = strip_html(text)
-                    if len(text) > 160:
-                        text = text[:157] + "..."
+                        text = strip_html(desc_el.text.strip())
+                    if not text and title_text:
+                        text = title_text
+                    if len(text) > 200:
+                        text = text[:197] + "..."
+
                     dt = None
                     try:
                         pub_str = pub_el.text.strip() if pub_el is not None and pub_el.text else ""
@@ -552,21 +601,27 @@ def fetch_social_signal():
                             dt = parsedate_to_datetime(pub_str)
                     except Exception:
                         pass
+
                     post = {
-                        "handle": handle,
+                        "handle": name.lower().replace(" ", ""),
                         "name": name,
+                        "title": title_text,
                         "text": text,
+                        "link": link,
                         "dt": dt,
                         "initial": name[0].upper(),
+                        "source_type": "youtube" if "youtube.com" in url else "substack" if "substack.com" in url else "blog",
                     }
-                break
+                    break
             except Exception as e:
-                log(f"[SOCIAL ERROR] {handle}@{base}: {e}")
+                log("[SOCIAL] " + name + " feed error: " + str(e))
                 continue
         if post:
             results.append(post)
-        # If all instances failed, skip gracefully
+        else:
+            log("[SOCIAL] No content for: " + name)
     return results
+
 
 # ── REDDIT PULSE (JSON API) ─────────────────────────────────────────────────
 def fetch_reddit_pulse():
@@ -949,19 +1004,29 @@ def build_email_html(weather, metar, taf, markets, calendar_events, date_str,
             time_span = ""
             if p_ago:
                 time_span = ' <span style="font-family:Arial,sans-serif;font-size:9px;color:#8A8A8E;">&middot; ' + p_ago + '</span>'
+            p_title = post.get("title", "")
+            p_source = post.get("source_type", "feed")
+            p_link = post.get("link", "")
+            src_badges = {"youtube": ("\u25b6 YouTube", "#CC0000"), "substack": ("\u2709 Substack", "#FF6719"), "blog": ("\u2726 Blog", "#007AFF")}
+            src_label, src_color = src_badges.get(p_source, ("", "#8A8A8E"))
+            if p_title and p_link:
+                title_html = "<div style=\"font-family:Georgia,serif;font-size:13px;font-weight:700;color:#1D1D1F;line-height:1.3;margin-top:5px;margin-bottom:3px;\"><a href=\"" + p_link + "\" style=\"color:#1D1D1F;text-decoration:none;\">" + p_title + "</a></div>"
+            elif p_title:
+                title_html = "<div style=\"font-family:Georgia,serif;font-size:13px;font-weight:700;color:#1D1D1F;line-height:1.3;margin-top:5px;margin-bottom:3px;\">" + p_title + "</div>"
+            else:
+                title_html = ""
+            desc_text = p_text if p_text and p_text != p_title else ""
+            desc_html = ("<div style=\"font-family:Arial,sans-serif;font-size:11px;color:#3A3A3C;line-height:1.5;margin-top:3px;\">" + desc_text[:180] + "</div>") if desc_text else ""
+            badge_html = (" <span style=\"font-family:Arial,sans-serif;font-size:9px;font-weight:700;color:" + src_color + ";background:" + src_color + "22;padding:1px 5px;border-radius:3px;margin-left:4px;\">" + src_label + "</span>") if src_label else ""
             social_cards_list.append(
-                '<tr><td style="padding:10px 0;border-bottom:1px solid #E5E5EA;">'
-                '<table cellpadding="0" cellspacing="0"><tr>'
-                '<td width="40" valign="top" style="padding-right:12px;">'
-                '<div style="width:36px;height:36px;border-radius:18px;background:' + a_color + ';text-align:center;line-height:36px;font-family:Arial,sans-serif;font-size:16px;font-weight:700;color:#fff;">'
-                + p_initial + '</div></td>'
-                '<td valign="top">'
-                '<div style="font-family:Arial,sans-serif;font-size:12px;font-weight:700;color:#1D1D1F;">'
-                + p_name + ' <span style="font-family:\'Courier New\',monospace;font-size:10px;font-weight:400;color:#8A8A8E;">@' + p_handle + '</span>'
-                + time_span + '</div>'
-                '<div style="font-family:Arial,sans-serif;font-size:12px;color:#3A3A3C;line-height:1.5;margin-top:4px;">'
-                + p_text + '</div>'
-                '</td></tr></table></td></tr>'
+                "<tr><td style=\"padding:10px 0;border-bottom:1px solid #E5E5EA;\">"
+                "<table cellpadding=\"0\" cellspacing=\"0\"><tr>"
+                "<td width=\"40\" valign=\"top\" style=\"padding-right:12px;\">"
+                "<div style=\"width:36px;height:36px;border-radius:18px;background:" + a_color + ";text-align:center;line-height:36px;font-family:Arial,sans-serif;font-size:16px;font-weight:700;color:#fff;\">" + p_initial + "</div></td>"
+                "<td valign=\"top\">"
+                "<div style=\"font-family:Arial,sans-serif;font-size:12px;font-weight:700;color:#1D1D1F;\">" + p_name + badge_html + time_span + "</div>"
+                + title_html + desc_html +
+                "</td></tr></table></td></tr>"
             )
         sec_social_rows = "".join(social_cards_list)
         social_inner = '<table width="100%" cellpadding="0" cellspacing="0">' + sec_social_rows + '</table>'
