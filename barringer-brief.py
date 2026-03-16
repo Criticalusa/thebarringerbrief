@@ -165,7 +165,7 @@ def _sort_and_limit(items, limit):
     """Sort items by dt descending (None last), return top N."""
     with_dt = [i for i in items if i.get("dt") is not None]
     without_dt = [i for i in items if i.get("dt") is None]
-    with_dt.sort(key=lambda x: x["dt"], reverse=True)
+    with_dt.sort(key=lambda x: x["dt"].replace(tzinfo=None) if hasattr(x["dt"], 'replace') else x["dt"], reverse=True)
     return (with_dt + without_dt)[:limit]
 
 
@@ -436,9 +436,19 @@ def fetch_calendar():
                 props = {}
                 for ln in block.strip().splitlines():
                     if ":" in ln:
-                        k, _, v = ln.partition(":")
-                        k = k.split(";")[0].strip()
-                        props[k] = v.strip()
+                        # Handle DTSTART;TZID=America/New_York:20260316T090000
+                        # Split on first colon AFTER any param section
+                        semi = ln.find(";")
+                        colon = ln.find(":")
+                        if semi >= 0 and semi < colon:
+                            # Has params — key is before semicolon, value after last colon
+                            k = ln[:semi].strip()
+                            v = ln[ln.rfind(":")+1:].strip()
+                        else:
+                            k, _, v = ln.partition(":")
+                            k = k.strip()
+                            v = v.strip()
+                        props[k] = v
                 summary = props.get("SUMMARY", "")
                 dtstart_raw = props.get("DTSTART", "")
                 if not summary or not dtstart_raw:
