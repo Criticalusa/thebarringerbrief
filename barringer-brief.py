@@ -478,6 +478,7 @@ def fetch_social_signal():
         "Jessica Tarlov":  "JessicaTarlov",
         "Sam Seder":       "SamSeder",
         "Seth Abramson":   "SethAbramson",
+        "Glenn Greenwald": "ggreenwald",
     }
     nitter_bases = [
         "https://nitter.net",
