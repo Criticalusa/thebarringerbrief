@@ -419,7 +419,7 @@ def fetch_calendar():
         ics_files = _glob.glob(os.path.expanduser("~/Library/Calendars/**/*.ics"), recursive=True)
         events = []
         seen = set()
-        now_dt = now
+        now_dt = now.replace(hour=0, minute=0, second=0, microsecond=0)  # start of today
         cut_dt = cutoff
         for fpath in ics_files:
             try:
@@ -444,14 +444,24 @@ def fetch_calendar():
                 if not summary or not dtstart_raw:
                     continue
                 s = dtstart_raw.replace("Z", "")
+                # Strip timezone offset e.g. -0500 or +0200
+                for _tz in ["+", "-"]:
+                    if _tz in s[8:]:
+                        s = s[:s.index(_tz, 8)]
                 dt = None
-                if len(s) >= 15:
+                if "T" in s:
+                    # e.g. 20260316T090000
+                    date_part, _, time_part = s.partition("T")
                     try:
-                        dt = datetime.datetime(int(s[0:4]), int(s[4:6]), int(s[6:8]),
-                                               int(s[9:11]), int(s[11:13]))
+                        dt = datetime.datetime(
+                            int(date_part[0:4]), int(date_part[4:6]), int(date_part[6:8]),
+                            int(time_part[0:2]) if len(time_part) >= 2 else 0,
+                            int(time_part[2:4]) if len(time_part) >= 4 else 0
+                        )
                     except Exception:
                         pass
                 if dt is None and len(s) == 8:
+                    # All-day event e.g. 20260316
                     try:
                         dt = datetime.datetime(int(s[0:4]), int(s[4:6]), int(s[6:8]), 0, 0)
                     except Exception:
