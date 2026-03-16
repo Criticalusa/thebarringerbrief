@@ -1,25 +1,173 @@
 #!/usr/bin/env python3
 """
-The Barringer Brief — GitHub Actions Version
-Runs via GitHub Actions cron every morning at 7:00 AM EDT (11:00 UTC).
-No macOS dependencies — pure Python stdlib.
-Fetches: weather (wttr.in), METAR (aviationweather.gov), markets (Yahoo Finance),
-         calendar (Google Calendar iCal URL via GCAL_ICAL_URL secret).
+The Barringer Brief — Local Mac Version
+Runs via LaunchAgent every morning at 7:00 AM.
+No external dependencies — uses only Python stdlib + subprocess (curl for Resend).
+Fetches: weather, METAR, TAF, markets, calendar, news RSS, social, Reddit.
 Sends via Resend API directly.
 """
 
-import json, datetime, urllib.request, urllib.error, sys, re, os, email.utils
+import json, datetime, urllib.request, urllib.error, sys, subprocess, re, os
+import xml.etree.ElementTree as ET
+from email.utils import parsedate_to_datetime
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 RECIPIENT      = "jadie2@mac.com"
 FROM_ADDRESS   = "The Barringer Brief <brief@thebarringerbrief.com>"
-RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
-GCAL_ICAL_URL  = os.environ.get("GCAL_ICAL_URL", "")   # optional — Google Calendar secret iCal URL
+RESEND_API_KEY = "re_bwoh8Rgi_JrK9uufjUQXyvHuP3YQ3EpYd"
 LIVE_URL       = "https://thebarringerbrief.com"
+LOG_FILE       = os.path.expanduser("~/Library/Logs/barringer-brief.log")
 
+# ── LOGGING ───────────────────────────────────────────────────────────────────
 def log(msg):
     ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[{ts}] {msg}", flush=True)
+    line = f"[{ts}] {msg}"
+    print(line)
+    try:
+        with open(LOG_FILE, "a") as f:
+            f.write(line + "\n")
+    except:
+        pass
+
+# ── HELPERS ──────────────────────────────────────────────────────────────────
+def time_ago(date_str):
+    """Parse RSS date string, return '2h ago', '35m ago', '1d ago' etc."""
+    if not date_str:
+        return ""
+    try:
+        # Try RFC 2822 first: "Mon, 16 Mar 2026 12:00:00 +0000"
+        dt = parsedate_to_datetime(date_str)
+    except Exception:
+        try:
+            # Try ISO 8601: "2026-03-16T12:00:00Z"
+            cleaned = date_str.replace("Z", "+00:00")
+            dt = datetime.datetime.fromisoformat(cleaned)
+        except Exception:
+            return ""
+    try:
+        now = datetime.datetime.now(datetime.timezone.utc)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=datetime.timezone.utc)
+        secs = int((now - dt).total_seconds())
+        if secs < 0:
+            secs = 0
+        if secs < 60:
+            return "just now"
+        mins = secs // 60
+        if mins < 60:
+            return str(mins) + "m ago"
+        hours = mins // 60
+        if hours < 24:
+            return str(hours) + "h ago"
+        days = hours // 24
+        return str(days) + "d ago"
+    except Exception:
+        return ""
+
+
+def time_ago_dt(dt):
+    """Return time ago from a datetime object."""
+    if dt is None:
+        return ""
+    try:
+        now = datetime.datetime.now(datetime.timezone.utc)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=datetime.timezone.utc)
+        secs = int((now - dt).total_seconds())
+        if secs < 0:
+            secs = 0
+        if secs < 60:
+            return "just now"
+        mins = secs // 60
+        if mins < 60:
+            return str(mins) + "m ago"
+        hours = mins // 60
+        if hours < 24:
+            return str(hours) + "h ago"
+        days = hours // 24
+        return str(days) + "d ago"
+    except Exception:
+        return ""
+
+
+def truncate(text, max_len=200):
+    """Truncate text to max_len chars, end with '...'."""
+    if not text:
+        return ""
+    text = text.strip()
+    if len(text) <= max_len:
+        return text
+    return text[:max_len - 3].rsplit(" ", 1)[0] + "..."
+
+
+def strip_html(text):
+    """Remove HTML tags from RSS descriptions."""
+    if not text:
+        return ""
+    return re.sub(r'<[^>]+>', '', text).strip()
+
+
+def _fetch_rss(url, source_name, timeout=10):
+    """Fetch and parse an RSS feed, returning list of item dicts."""
+    items = []
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        "Accept": "application/rss+xml, application/xml, text/xml, */*",
+    }
+    try:
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            raw = r.read()
+    except Exception as e:
+        log(f"[RSS ERROR] {source_name}: fetch failed: {e}")
+        return items
+    try:
+        root = ET.fromstring(raw)
+    except ET.ParseError as e:
+        log(f"[RSS ERROR] {source_name}: malformed XML: {e}")
+        return items
+    except Exception as e:
+        log(f"[RSS ERROR] {source_name}: XML parse error: {e}")
+        return items
+    for item in root.findall(".//item"):
+        title_el = item.find("title")
+        link_el = item.find("link")
+        pub_el = item.find("pubDate")
+        desc_el = item.find("description")
+        title = title_el.text.strip() if title_el is not None and title_el.text else ""
+        link = link_el.text.strip() if link_el is not None and link_el.text else ""
+        pub_date = pub_el.text.strip() if pub_el is not None and pub_el.text else ""
+        desc = desc_el.text.strip() if desc_el is not None and desc_el.text else ""
+        if not title:
+            continue
+        dt = None
+        if pub_date:
+            try:
+                dt = parsedate_to_datetime(pub_date)
+            except Exception:
+                try:
+                    cleaned = pub_date.replace("Z", "+00:00")
+                    dt = datetime.datetime.fromisoformat(cleaned)
+                except Exception:
+                    pass
+        items.append({
+            "title": title,
+            "link": link,
+            "source": source_name,
+            "pub_date": pub_date,
+            "dt": dt,
+            "description": strip_html(desc),
+        })
+    return items
+
+
+def _sort_and_limit(items, limit):
+    """Sort items by dt descending (None last), return top N."""
+    with_dt = [i for i in items if i.get("dt") is not None]
+    without_dt = [i for i in items if i.get("dt") is None]
+    with_dt.sort(key=lambda x: x["dt"], reverse=True)
+    return (with_dt + without_dt)[:limit]
+
 
 # ── WEATHER ───────────────────────────────────────────────────────────────────
 def fetch_weather():
@@ -70,6 +218,107 @@ def fetch_metar():
         log(f"[METAR ERROR] {e}")
         return {}
 
+# ── TAF ──────────────────────────────────────────────────────────────────────
+def fetch_taf():
+    """Fetch TAF for KFLL to build Go/No-Go recommendation."""
+    try:
+        req = urllib.request.Request(
+            "https://aviationweather.gov/api/data/taf?ids=KFLL&format=json",
+            headers={"User-Agent": "BarringerBrief/1.0"}
+        )
+        with urllib.request.urlopen(req, timeout=10) as r:
+            data = json.loads(r.read())
+        if not data:
+            return None
+        taf = data[0]
+        raw_text = taf.get("rawTAF", "")
+        # Parse forecast groups for wind/vis/ceiling
+        def _safe_num(val, default=0):
+            """Coerce a value to float, returning default if conversion fails."""
+            if val is None:
+                return default
+            try:
+                return float(val)
+            except (ValueError, TypeError):
+                return default
+
+        forecasts = []
+        for fcst in taf.get("fcsts", taf.get("forecast", [])):
+            wind_spd = _safe_num(fcst.get("wspd"), 0)
+            wind_gust = _safe_num(fcst.get("wgst"), 0)
+            vis = _safe_num(fcst.get("visib"), 6)
+            # Ceiling: lowest broken or overcast layer
+            ceil = 99999
+            for cld in fcst.get("clouds", []):
+                cover = cld.get("cover", "")
+                base = _safe_num(cld.get("base"), 99999)
+                if cover in ("BKN", "OVC") and base < ceil:
+                    ceil = base
+            forecasts.append({
+                "wspd": wind_spd,
+                "wgst": wind_gust,
+                "vis": vis,
+                "ceil": ceil,
+            })
+        # Determine Go/No-Go for next ~12h (first few forecast periods)
+        worst_ceil = 99999
+        worst_vis = 99
+        worst_wind = 0
+        worst_gust = 0
+        for f in forecasts[:4]:
+            if f["ceil"] < worst_ceil:
+                worst_ceil = f["ceil"]
+            if f["vis"] < worst_vis:
+                worst_vis = f["vis"]
+            if f["wspd"] > worst_wind:
+                worst_wind = f["wspd"]
+            if f["wgst"] > worst_gust:
+                worst_gust = f["wgst"]
+        # Decision logic
+        if worst_ceil < 500 or worst_vis < 1 or worst_gust > 35:
+            status = "NO-GO"
+            status_color = "#CC0000"
+            reason = ""
+            reasons = []
+            if worst_ceil < 500:
+                reasons.append("Ceilings below 500 ft")
+            if worst_vis < 1:
+                reasons.append("Visibility below 1 SM")
+            if worst_gust > 35:
+                reasons.append("Gusts " + str(worst_gust) + " kt")
+            reason = " / ".join(reasons)
+        elif worst_ceil < 1000 or worst_vis < 3 or worst_gust > 25:
+            status = "MARGINAL"
+            status_color = "#FF9500"
+            reasons = []
+            if worst_ceil < 1000:
+                reasons.append("Ceilings " + str(worst_ceil) + " ft")
+            if worst_vis < 3:
+                reasons.append("Vis " + str(worst_vis) + " SM")
+            if worst_gust > 25:
+                reasons.append("Gusts " + str(worst_gust) + " kt")
+            reason = " / ".join(reasons)
+        else:
+            status = "GO — VFR"
+            status_color = "#34C759"
+            reason = "Winds " + str(worst_wind) + " kt"
+            if worst_gust > 0:
+                reason += " G" + str(worst_gust)
+            reason += " / Vis " + str(worst_vis) + "+ SM"
+        return {
+            "status": status,
+            "status_color": status_color,
+            "reason": reason,
+            "raw": raw_text,
+            "worst_ceil": worst_ceil,
+            "worst_vis": worst_vis,
+            "worst_wind": worst_wind,
+            "worst_gust": worst_gust,
+        }
+    except Exception as e:
+        log(f"[TAF ERROR] {e}")
+        return None
+
 # ── MARKETS (Yahoo Finance — no API key needed) ───────────────────────────────
 def fetch_markets():
     tickers = ["SPY", "QQQ", "NVDA", "AAPL", "BTC-USD", "CL=F"]
@@ -90,119 +339,258 @@ def fetch_markets():
             pct   = (chg / prev * 100) if prev else 0
             if price > 10000:
                 price_str = f"{price:,.0f}"
+            elif price > 100:
+                price_str = f"{price:.2f}"
             else:
                 price_str = f"{price:.2f}"
             markets[sym] = {
-                "price":  price_str,
+                "price": price_str,
                 "change": f"{chg:+.2f}",
-                "pct":    f"{pct:.2f}",
+                "pct": f"{pct:.2f}",
             }
         except Exception as e:
             log(f"[MARKET ERROR] {sym}: {e}")
     return markets
 
-# ── CALENDAR (Google Calendar iCal) ──────────────────────────────────────────
+# ── CALENDAR (macOS via AppleScript) ─────────────────────────────────────────
 def fetch_calendar():
-    """
-    Fetch next 7 days of events from a Google Calendar secret iCal URL.
-    Set the GCAL_ICAL_URL GitHub secret to enable this.
-    Falls back gracefully if not configured.
-    """
-    if not GCAL_ICAL_URL:
-        log("[CALENDAR] GCAL_ICAL_URL not set — skipping calendar")
-        return []
+    """Fetch next 7 days of calendar events via faster AppleScript."""
+    script = '''
+    set output to ""
+    set d1 to current date
+    set d2 to d1 + (7 * days)
+    tell application "Calendar"
+        repeat with c in (every calendar)
+            repeat with e in (every event of c whose start date >= d1 and start date < d2)
+                set t to summary of e
+                set s to start date of e
+                set output to output & t & "~" & (s as string) & "||"
+            end repeat
+        end repeat
+    end tell
+    return output
+    '''
     try:
-        req = urllib.request.Request(
-            GCAL_ICAL_URL,
-            headers={"User-Agent": "BarringerBrief/1.0"}
-        )
-        with urllib.request.urlopen(req, timeout=15) as r:
-            raw = r.read().decode("utf-8", errors="replace")
-        return _parse_ical(raw)
-    except Exception as e:
-        log(f"[CALENDAR ERROR] {e}")
+        result = subprocess.run(["osascript", "-e", script],
+            capture_output=True, text=True, timeout=45)
+        if result.returncode != 0 or not result.stdout.strip():
+            return []
+        events = []
+        seen = set()
+        for block in result.stdout.strip().split("||"):
+            block = block.strip()
+            if not block or "~" not in block:
+                continue
+            parts = block.split("~", 1)
+            title = parts[0].strip()
+            time_raw = parts[1].strip() if len(parts) > 1 else ""
+            if title in seen:
+                continue
+            seen.add(title)
+            try:
+                clean = time_raw.replace(" at ", " ")
+                dt = None
+                for fmt in ["%A, %B %d, %Y %I:%M:%S %p", "%A, %B %d, %Y %I:%M %p",
+                            "%A, %B %d, %Y %I %p", "%A, %B %d, %Y"]:
+                    try:
+                        dt = datetime.datetime.strptime(clean, fmt)
+                        break
+                    except:
+                        continue
+                time_str = dt.strftime("%A, %b %-d · %-I:%M %p") if dt else time_raw
+            except:
+                time_str = time_raw
+            events.append({"title": title, "time": time_str, "location": "", "attendees": []})
+        events.sort(key=lambda e: e["time"])
+        return events[:8]
+    except Exception as ex:
+        log(f"[CALENDAR ERROR] {ex}")
         return []
 
-def _parse_ical(raw):
-    """Minimal iCal parser — extracts VEVENT blocks for the next 7 days."""
-    now   = datetime.datetime.now(datetime.timezone.utc)
-    end   = now + datetime.timedelta(days=7)
-    events = []
+# ── TOP NEWS (RSS) ───────────────────────────────────────────────────────────
+def fetch_top_news():
+    """Fetch top 10 stories across major political/general news RSS feeds."""
+    feeds = [
+        ("https://feeds.npr.org/1001/rss.xml", "NPR News"),
+        ("https://feeds.npr.org/1014/rss.xml", "NPR Politics"),
+        ("https://thehill.com/feed/", "The Hill"),
+        ("https://rss.politico.com/politics-news.xml", "Politico"),
+        ("https://feeds.bbci.co.uk/news/rss.xml", "BBC News"),
+        ("https://www.theguardian.com/us-news/rss", "Guardian US"),
+    ]
+    all_items = []
+    for url, source in feeds:
+        all_items.extend(_fetch_rss(url, source))
+    return _sort_and_limit(all_items, 10)
 
-    # Split into VEVENT blocks
-    blocks = re.findall(r"BEGIN:VEVENT(.*?)END:VEVENT", raw, re.DOTALL)
-    for block in blocks:
-        def get(key):
-            m = re.search(rf"^{key}[;:][^\r\n]*", block, re.MULTILINE)
-            if not m: return ""
-            # Strip the key: prefix, handle DTSTART;TZID=... forms
-            val = m.group(0)
-            val = re.sub(rf"^{key}[^:]*:", "", val)
-            return val.strip()
+# ── HEALTH NEWS (RSS) ────────────────────────────────────────────────────────
+def fetch_health_news():
+    """Fetch top 5 health/medical stories."""
+    feeds = [
+        ("https://www.statnews.com/feed/", "STAT News"),
+        ("https://rss.politico.com/healthcare.xml", "Politico Health"),
+        ("https://www.healthaffairs.org/rss/current", "Health Affairs"),
+        ("https://kffhealthnews.org/feed/", "Kaiser Health"),
+    ]
+    all_items = []
+    for url, source in feeds:
+        all_items.extend(_fetch_rss(url, source))
+    return _sort_and_limit(all_items, 5)
 
-        summary  = _unescape(get("SUMMARY"))
-        location = _unescape(get("LOCATION"))
-        dtstart  = get("DTSTART")
+# ── AI / TECH NEWS (RSS) ─────────────────────────────────────────────────────
+def fetch_ai_news():
+    """Fetch top 5 AI/tech stories."""
+    feeds = [
+        ("https://techcrunch.com/category/artificial-intelligence/feed/", "TechCrunch AI"),
+        ("https://www.technologyreview.com/feed/", "MIT Tech Review"),
+        ("https://www.theverge.com/ai-artificial-intelligence/rss/index.xml", "The Verge AI"),
+    ]
+    all_items = []
+    for url, source in feeds:
+        all_items.extend(_fetch_rss(url, source))
+    return _sort_and_limit(all_items, 5)
 
-        if not dtstart or not summary:
-            continue
+# ── SOUTH FLORIDA NEWS (RSS) ─────────────────────────────────────────────────
+def fetch_sfla_news():
+    """Fetch top 5 South Florida local stories."""
+    feeds = [
+        ("https://www.wlrn.org/rss.xml", "WLRN"),
+        ("https://www.nbcmiami.com/feed/", "NBC6 Miami"),
+        ("https://www.cbsnews.com/miami/feed/", "CBS Miami"),
+        ("https://wsvn.com/feed/", "WSVN"),
+    ]
+    all_items = []
+    for url, source in feeds:
+        all_items.extend(_fetch_rss(url, source))
+    return _sort_and_limit(all_items, 5)
 
-        dt = _parse_dt(dtstart)
-        if dt is None:
-            continue
+# ── SOCIAL SIGNAL (Nitter RSS) ──────────────────────────────────────────────
+def fetch_social_signal():
+    """Fetch latest posts from social accounts via Nitter RSS."""
+    accounts = {
+        "Aaron Parnas":    "AaronParnas",
+        "MeidasTouch":     "MeidasTouch",
+        "David Pakman":    "dpakman",
+        "James Li":        "5149jamesli",
+        "Mehdi Hasan":     "mehdirhasan",
+        "Prof. Jiang":     "xueqinjiang",
+        "Scott Galloway":  "profgalloway",
+        "Jessica Tarlov":  "JessicaTarlov",
+        "Sam Seder":       "SamSeder",
+        "Seth Abramson":   "SethAbramson",
+    }
+    nitter_bases = [
+        "https://nitter.net",
+        "https://nitter.privacydev.net",
+        "https://nitter.poast.org",
+    ]
+    results = []
+    for name, handle in accounts.items():
+        post = None
+        for base in nitter_bases:
+            try:
+                url = base + "/" + handle + "/rss"
+                req = urllib.request.Request(url, headers={"User-Agent": "BarringerBrief/1.0"})
+                with urllib.request.urlopen(req, timeout=10) as r:
+                    raw = r.read()
+                root = ET.fromstring(raw)
+                item = root.find(".//item")
+                if item is not None:
+                    title_el = item.find("title")
+                    desc_el = item.find("description")
+                    pub_el = item.find("pubDate")
+                    text = ""
+                    if desc_el is not None and desc_el.text:
+                        text = desc_el.text.strip()
+                    elif title_el is not None and title_el.text:
+                        text = title_el.text.strip()
+                    text = strip_html(text)
+                    if len(text) > 160:
+                        text = text[:157] + "..."
+                    dt = None
+                    try:
+                        pub_str = pub_el.text.strip() if pub_el is not None and pub_el.text else ""
+                        if pub_str:
+                            dt = parsedate_to_datetime(pub_str)
+                    except Exception:
+                        pass
+                    post = {
+                        "handle": handle,
+                        "name": name,
+                        "text": text,
+                        "dt": dt,
+                        "initial": name[0].upper(),
+                    }
+                break
+            except Exception as e:
+                log(f"[SOCIAL ERROR] {handle}@{base}: {e}")
+                continue
+        if post:
+            results.append(post)
+        # If all instances failed, skip gracefully
+    return results
 
-        # Normalise to UTC for comparison
-        if dt.tzinfo is None:
-            dt_utc = dt.replace(tzinfo=datetime.timezone.utc)
-        else:
-            dt_utc = dt.astimezone(datetime.timezone.utc)
-
-        if now <= dt_utc <= end:
-            # Convert to Eastern for display
-            edt_offset = datetime.timezone(datetime.timedelta(hours=-4))  # EDT
-            dt_edt = dt_utc.astimezone(edt_offset)
-            time_str = dt_edt.strftime("%A, %b %-d · %-I:%M %p EDT")
-            events.append({
-                "title":     summary,
-                "time":      time_str,
-                "location":  location,
-                "attendees": [],
-            })
-
-    # Sort chronologically
-    def sort_key(e):
+# ── REDDIT PULSE (JSON API) ─────────────────────────────────────────────────
+def fetch_reddit_pulse():
+    """Fetch top posts from subreddits using Reddit's public JSON API."""
+    subreddits = [
+        ("politics", "r/politics"),
+        ("medicine", "r/medicine"),
+        ("transplant", "r/transplant"),
+        ("florida", "r/Florida"),
+        ("wallstreetbets", "r/wallstreetbets"),
+        ("ChatGPT", "r/ChatGPT"),
+    ]
+    results = []
+    for sub, label in subreddits:
         try:
-            parts = e["time"].split(" · ")
-            return parts[1] if len(parts) > 1 else ""
-        except:
-            return ""
-
-    events.sort(key=lambda e: e["time"])
-    # Deduplicate
-    seen, unique = set(), []
-    for e in events:
-        key = e["title"] + e["time"]
-        if key not in seen:
-            seen.add(key)
-            unique.append(e)
-    return unique[:8]
-
-def _unescape(s):
-    return s.replace("\\n", "\n").replace("\\,", ",").replace("\\;", ";").replace("\\\\", "\\")
-
-def _parse_dt(s):
-    """Parse iCal DTSTART value — handles DATE-TIME and DATE formats."""
-    s = s.strip()
-    # Strip TZID prefix if present (already extracted value only)
-    try:
-        if "T" in s:
-            s = s.rstrip("Z")
-            return datetime.datetime.strptime(s[:15], "%Y%m%dT%H%M%S")
-        else:
-            d = datetime.datetime.strptime(s[:8], "%Y%m%d")
-            return d.replace(hour=0, minute=0, second=0)
-    except:
-        return None
+            url = "https://www.reddit.com/r/" + sub + "/hot.json?limit=3"
+            req = urllib.request.Request(url, headers={"User-Agent": "BarringerBrief/1.0"})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                data = json.loads(r.read())
+            posts = data.get("data", {}).get("children", [])
+            top_post = None
+            for p in posts:
+                pd = p.get("data", {})
+                if pd.get("stickied", False):
+                    continue
+                top_post = {
+                    "title": pd.get("title", ""),
+                    "score": pd.get("score", 0),
+                    "comments": pd.get("num_comments", 0),
+                    "permalink": "https://reddit.com" + pd.get("permalink", ""),
+                    "subreddit": label,
+                }
+                break
+            if not top_post and posts:
+                pd = posts[0].get("data", {})
+                top_post = {
+                    "title": pd.get("title", ""),
+                    "score": pd.get("score", 0),
+                    "comments": pd.get("num_comments", 0),
+                    "permalink": "https://reddit.com" + pd.get("permalink", ""),
+                    "subreddit": label,
+                }
+            if top_post:
+                results.append(top_post)
+            else:
+                results.append({
+                    "title": "(no posts available)",
+                    "score": 0,
+                    "comments": 0,
+                    "permalink": "",
+                    "subreddit": label,
+                })
+        except Exception as e:
+            log(f"[REDDIT ERROR] {label}: {e}")
+            results.append({
+                "title": "(unavailable)",
+                "score": 0,
+                "comments": 0,
+                "permalink": "",
+                "subreddit": label,
+            })
+    return results
 
 # ── WEATHER ICON ─────────────────────────────────────────────────────────────
 def weather_icon(desc):
@@ -225,29 +613,72 @@ def metar_rows_html(metar):
         if not m: continue
         cat = m["cat"]
         cat_color = {"VFR":"#34C759","MVFR":"#007AFF","IFR":"#CC0000","LIFR":"#5856D6"}.get(cat,"#8A8A8E")
-        rows += f"""<tr>
-          <td style="font-family:'Courier New',monospace;font-size:11px;font-weight:700;color:#1D1D1F;padding:5px 14px 5px 0;width:48px;">{apt}</td>
-          <td style="font-family:'Courier New',monospace;font-size:10px;color:#3A3A3C;padding:5px 14px 5px 0;">{m['temp']}°C &nbsp;{m['cover']} &nbsp;{m['wdir']}/{m['wspd']}kt</td>
-          <td style="padding:5px 0;"><span style="font-family:Arial,sans-serif;font-size:9px;font-weight:700;color:{cat_color};">● {cat}</span></td>
-        </tr>"""
+        rows += (
+            '<tr>'
+            '<td style="font-family:\'Courier New\',monospace;font-size:11px;font-weight:700;color:#1D1D1F;padding:5px 14px 5px 0;width:48px;">' + apt + '</td>'
+            '<td style="font-family:\'Courier New\',monospace;font-size:10px;color:#3A3A3C;padding:5px 14px 5px 0;">' + str(m['temp']) + '°C &nbsp;' + str(m['cover']) + ' &nbsp;' + str(m['wdir']) + '/' + str(m['wspd']) + 'kt</td>'
+            '<td style="padding:5px 0;"><span style="font-family:Arial,sans-serif;font-size:9px;font-weight:700;color:' + cat_color + ';">● ' + cat + '</span></td>'
+            '</tr>'
+        )
     return rows or "<tr><td style='font-size:11px;color:#8A8A8E;'>METAR unavailable</td></tr>"
 
+# ── NEWS ROW BUILDER ─────────────────────────────────────────────────────────
+def build_news_rows(items, label_color="#CC0000"):
+    """Build HTML rows from a list of RSS news items."""
+    rows = ""
+    for idx, item in enumerate(items):
+        title = item.get("title", "")
+        link = item.get("link", "")
+        source = item.get("source", "")
+        pub = item.get("pub_date", "")
+        desc = truncate(item.get("description", ""), 180)
+        ago = time_ago(pub)
+        is_last = idx == len(items) - 1
+        border = "" if is_last else "border-bottom:1px solid #E5E5EA;"
+        link_open = ""
+        link_close = ""
+        if link:
+            link_open = '<a href="' + link + '" style="color:#1D1D1F;text-decoration:none;">'
+            link_close = '</a>'
+        ago_span = ""
+        if ago:
+            ago_span = ' <span style="font-family:Arial,sans-serif;font-size:9px;color:#8A8A8E;margin-left:6px;">' + ago + '</span>'
+        desc_div = ""
+        if desc:
+            desc_div = '<div style="font-family:Arial,sans-serif;font-size:11px;color:#3A3A3C;line-height:1.6;margin-top:4px;">' + desc + '</div>'
+        rows += (
+            '<tr><td style="padding:12px 0;' + border + '">'
+            '<div style="font-family:Arial,sans-serif;font-size:8px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:' + label_color + ';margin-bottom:4px;">'
+            + source + ago_span + '</div>'
+            '<div style="font-family:Georgia,serif;font-size:14px;font-weight:700;color:#1D1D1F;line-height:1.4;">'
+            + link_open + title + link_close + '</div>'
+            + desc_div +
+            '</td></tr>'
+        )
+    return rows
+
+
 # ── BUILD EMAIL ───────────────────────────────────────────────────────────────
-def build_email_html(weather, metar, markets, calendar_events, date_str):
+def build_email_html(weather, metar, taf, markets, calendar_events, date_str,
+                     top_news, health_news, ai_news, sfla_news,
+                     social_signal, reddit_pulse):
 
     # Weather block
     if weather:
-        wx_html = f"""
-        <td style="vertical-align:top;padding-right:24px;border-right:1px solid #E5E5EA;">
-          <div style="font-family:Georgia,serif;font-size:52px;font-weight:200;color:#1D1D1F;line-height:1;letter-spacing:-2px;">{weather['temp_f']}<span style="font-size:16px;color:#8A8A8E;font-weight:300;">°F</span></div>
-          <div style="font-family:Arial,sans-serif;font-size:13px;font-weight:600;color:#1D1D1F;margin-top:6px;">{weather_icon(weather['desc'])} {weather['desc']}</div>
-          <div style="font-family:'Courier New',monospace;font-size:9px;color:#3A3A3C;margin-top:6px;line-height:2.0;">
-            Hi {weather['high']}° / Lo {weather['low']}° &nbsp;·&nbsp; UV {weather['uv']}<br>
-            Wind {weather['wind_mph']} mph {weather['wind_dir']}<br>
-            Feels like {weather['feels_like']}°F
-          </div>
-          <div style="font-family:'Courier New',monospace;font-size:8px;color:#8A8A8E;margin-top:8px;letter-spacing:0.14em;text-transform:uppercase;">Weston, FL</div>
-        </td>"""
+        wx_html = (
+            '<td style="vertical-align:top;padding-right:24px;border-right:1px solid #E5E5EA;">'
+            '<div style="font-family:Georgia,serif;font-size:52px;font-weight:200;color:#1D1D1F;line-height:1;letter-spacing:-2px;">'
+            + weather['temp_f'] + '<span style="font-size:16px;color:#8A8A8E;font-weight:300;">°F</span></div>'
+            '<div style="font-family:Arial,sans-serif;font-size:13px;font-weight:600;color:#1D1D1F;margin-top:6px;">'
+            + weather_icon(weather['desc']) + ' ' + weather['desc'] + '</div>'
+            '<div style="font-family:\'Courier New\',monospace;font-size:9px;color:#3A3A3C;margin-top:6px;line-height:2.0;">'
+            'Hi ' + weather['high'] + '° / Lo ' + weather['low'] + '° &nbsp;·&nbsp; UV ' + weather['uv'] + '<br>'
+            'Wind ' + weather['wind_mph'] + ' mph ' + weather['wind_dir'] + '<br>'
+            'Feels like ' + weather['feels_like'] + '°F'
+            '</div>'
+            '<div style="font-family:\'Courier New\',monospace;font-size:8px;color:#8A8A8E;margin-top:8px;letter-spacing:0.14em;text-transform:uppercase;">Weston, FL</div>'
+            '</td>'
+        )
     else:
         wx_html = "<td style='color:#8A8A8E;font-size:12px;padding-right:24px;border-right:1px solid #E5E5EA;'>Weather unavailable</td>"
 
@@ -262,14 +693,16 @@ def build_email_html(weather, metar, markets, calendar_events, date_str):
             pf    = float(str(pct).replace("%","").replace("+",""))
             color = "#34C759" if pf >= 0 else "#CC0000"
             arr   = "↑" if pf >= 0 else "↓"
-            ps    = f"{arr}{abs(pf):.2f}%"
+            ps    = arr + str(abs(pf)) + "%"
         except:
             color, ps = "#8A8A8E", "--"
-        mkt_cells += f"""<td align="center" style="padding:0 8px;">
-          <div style="font-family:'Courier New',monospace;font-size:8px;color:#8A8A8E;letter-spacing:0.08em;margin-bottom:4px;">{label}</div>
-          <div style="font-family:Arial,sans-serif;font-size:15px;font-weight:700;color:#1D1D1F;letter-spacing:-0.5px;">${price}</div>
-          <div style="font-family:Arial,sans-serif;font-size:10px;font-weight:600;color:{color};margin-top:2px;">{ps}</div>
-        </td>"""
+        mkt_cells += (
+            '<td align="center" style="padding:0 8px;">'
+            '<div style="font-family:\'Courier New\',monospace;font-size:8px;color:#8A8A8E;letter-spacing:0.08em;margin-bottom:4px;">' + label + '</div>'
+            '<div style="font-family:Arial,sans-serif;font-size:15px;font-weight:700;color:#1D1D1F;letter-spacing:-0.5px;">$' + price + '</div>'
+            '<div style="font-family:Arial,sans-serif;font-size:10px;font-weight:600;color:' + color + ';margin-top:2px;">' + ps + '</div>'
+            '</td>'
+        )
 
     # Calendar
     if calendar_events:
@@ -282,307 +715,410 @@ def build_email_html(weather, metar, markets, calendar_events, date_str):
             time_part = parts[1] if len(parts) > 1 else ""
             day_abbr  = day_part[:3].upper() if day_part else ""
             day_num   = day_part.split()[-1] if day_part else ""
-            att_html  = f"<div style='font-family:Arial,sans-serif;font-size:10px;color:#8A8A8E;margin-top:2px;'>👥 {' &nbsp;·&nbsp; '.join(att)}</div>" if att else ""
-            loc_part  = f"  ·  📍 {loc}" if loc else ""
-            cal_rows += f"""
-            <tr><td style="padding:14px 0;border-bottom:1px solid #E5E5EA;">
-              <table width="100%" cellpadding="0" cellspacing="0"><tr>
-                <td width="52" valign="top" style="padding-right:16px;">
-                  <div style="width:44px;border-radius:10px;overflow:hidden;border:1px solid #E5E5EA;box-shadow:0 1px 3px rgba(0,0,0,0.10);">
-                    <div style="background:#CC0000;padding:3px 4px;text-align:center;">
-                      <div style="font-family:Arial,sans-serif;font-size:8px;font-weight:700;letter-spacing:0.08em;color:#fff;text-transform:uppercase;">{day_abbr}</div>
-                    </div>
-                    <div style="background:#fff;padding:4px 4px 5px;text-align:center;">
-                      <div style="font-family:Arial,sans-serif;font-size:22px;font-weight:200;color:#1D1D1F;line-height:1;">{day_num}</div>
-                    </div>
-                  </div>
-                </td>
-                <td valign="top">
-                  <div style="font-family:Georgia,serif;font-size:14px;font-weight:700;color:#1D1D1F;line-height:1.3;margin-bottom:4px;">{ev['title']}</div>
-                  <div style="font-family:Arial,sans-serif;font-size:11px;color:#3A3A3C;margin-bottom:2px;">🕐 {time_part}{loc_part}</div>
-                  {att_html}
-                </td>
-              </tr></table>
-            </td></tr>"""
-        cal_html = f'<table width="100%" cellpadding="0" cellspacing="0">{cal_rows}</table>'
+            att_html  = ""
+            if att:
+                att_html = '<div style="font-family:Arial,sans-serif;font-size:10px;color:#8A8A8E;margin-top:2px;">' + " &nbsp;·&nbsp; ".join(att) + '</div>'
+            loc_part  = "  ·  " + loc if loc else ""
+            cal_rows += (
+                '<tr><td style="padding:14px 0;border-bottom:1px solid #E5E5EA;">'
+                '<table width="100%" cellpadding="0" cellspacing="0"><tr>'
+                '<td width="52" valign="top" style="padding-right:16px;">'
+                '<div style="width:44px;border-radius:10px;overflow:hidden;border:1px solid #E5E5EA;box-shadow:0 1px 3px rgba(0,0,0,0.10);">'
+                '<div style="background:#CC0000;padding:3px 4px;text-align:center;">'
+                '<div style="font-family:Arial,sans-serif;font-size:8px;font-weight:700;letter-spacing:0.08em;color:#fff;text-transform:uppercase;">' + day_abbr + '</div>'
+                '</div>'
+                '<div style="background:#fff;padding:4px 4px 5px;text-align:center;">'
+                '<div style="font-family:Arial,sans-serif;font-size:22px;font-weight:200;color:#1D1D1F;line-height:1;">' + day_num + '</div>'
+                '</div></div></td>'
+                '<td valign="top">'
+                '<div style="font-family:Georgia,serif;font-size:14px;font-weight:700;color:#1D1D1F;line-height:1.3;margin-bottom:4px;">' + ev['title'] + '</div>'
+                '<div style="font-family:Arial,sans-serif;font-size:11px;color:#3A3A3C;margin-bottom:2px;">' + time_part + loc_part + '</div>'
+                + att_html +
+                '</td></tr></table></td></tr>'
+            )
+        cal_html = '<table width="100%" cellpadding="0" cellspacing="0">' + cal_rows + '</table>'
     else:
         cal_html = "<div style='font-family:Arial,sans-serif;font-size:12px;color:#8A8A8E;padding:8px 0;'>No events scheduled this week.</div>"
 
+    # ── Section helper (kept as-is) ──────────────────────────────────────
     def section(num, tag, tag_color, headline, deck, rows_html):
-        return f"""
-  <tr><td style="height:2px;background:#F5F5F7;"></td></tr>
-  <tr><td style="background:#fff;border:1px solid #E5E5EA;padding:28px 28px 24px;">
-    <table cellpadding="0" cellspacing="0" style="margin-bottom:18px;"><tr>
-      <td style="font-family:Georgia,serif;font-size:56px;font-weight:900;color:{tag_color};line-height:1;opacity:0.30;padding-right:12px;vertical-align:middle;">{num:02d}</td>
-      <td style="vertical-align:middle;border-left:2px solid {tag_color};padding-left:10px;">
-        <div style="font-family:Arial,sans-serif;font-size:8px;font-weight:700;letter-spacing:0.2em;text-transform:uppercase;color:{tag_color};">{tag}</div>
-      </td>
-    </tr></table>
-    <div style="font-family:Georgia,serif;font-size:20px;font-weight:700;color:#1D1D1F;line-height:1.3;margin-bottom:6px;">{headline}</div>
-    <div style="font-family:Arial,sans-serif;font-size:12px;color:#8A8A8E;font-style:italic;margin-bottom:18px;padding-bottom:16px;border-bottom:1px solid #E5E5EA;line-height:1.6;">{deck}</div>
-    <table width="100%" cellpadding="0" cellspacing="0">{rows_html}</table>
-  </td></tr>"""
+        return (
+            '<tr><td style="height:2px;background:#F5F5F7;"></td></tr>'
+            '<tr><td style="background:#fff;border:1px solid #E5E5EA;padding:28px 28px 24px;">'
+            '<table cellpadding="0" cellspacing="0" style="margin-bottom:18px;"><tr>'
+            '<td style="font-family:Georgia,serif;font-size:56px;font-weight:900;color:' + tag_color + ';line-height:1;opacity:0.30;padding-right:12px;vertical-align:middle;">' + str(num).zfill(2) + '</td>'
+            '<td style="vertical-align:middle;border-left:2px solid ' + tag_color + ';padding-left:10px;">'
+            '<div style="font-family:Arial,sans-serif;font-size:8px;font-weight:700;letter-spacing:0.2em;text-transform:uppercase;color:' + tag_color + ';">' + tag + '</div>'
+            '</td></tr></table>'
+            '<div style="font-family:Georgia,serif;font-size:20px;font-weight:700;color:#1D1D1F;line-height:1.3;margin-bottom:6px;">' + headline + '</div>'
+            '<div style="font-family:Arial,sans-serif;font-size:12px;color:#8A8A8E;font-style:italic;margin-bottom:18px;padding-bottom:16px;border-bottom:1px solid #E5E5EA;line-height:1.6;">' + deck + '</div>'
+            '<table width="100%" cellpadding="0" cellspacing="0">' + rows_html + '</table>'
+            '</td></tr>'
+        )
 
     def row(label, body, label_color="#CC0000", last=False):
         border = "" if last else "border-bottom:1px solid #E5E5EA;"
-        return f"""<tr><td style="padding:13px 0;{border}">
-          <div style="font-family:Arial,sans-serif;font-size:8px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:{label_color};margin-bottom:5px;">{label}</div>
-          <div style="font-family:Arial,sans-serif;font-size:12px;color:#3A3A3C;line-height:1.75;">{body}</div>
-        </td></tr>"""
+        return (
+            '<tr><td style="padding:13px 0;' + border + '">'
+            '<div style="font-family:Arial,sans-serif;font-size:8px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:' + label_color + ';margin-bottom:5px;">' + label + '</div>'
+            '<div style="font-family:Arial,sans-serif;font-size:12px;color:#3A3A3C;line-height:1.75;">' + body + '</div>'
+            '</td></tr>'
+        )
 
-    signal = (
-        row("What Happened", "The DOJ released three previously withheld FBI 302 documents from the Epstein files. Journalists disproved \"duplicative\" claims in hours. At least <strong>37 pages remain missing.</strong> House Oversight voted — bipartisan — to subpoena AG Pam Bondi.") +
-        row("Why It Matters", "This isn't a Trump story. It's a document-management story. Bipartisan subpoenas on document releases are rare — that signals institutional anxiety about what's still in those files.") +
-        row("The System Underneath", "Document declassification is a power tool. The Epstein Files Act was meant to force transparency. What we're watching is the government's interpretive immune system working against it.") +
-        row("What to Watch", "Will AG Bondi comply or assert executive privilege? Watch for a legal challenge, a quiet partial release, and another document gap. Miami Herald's Julie K. Brown is the primary source.", last=True)
+    # ── SECTION 1: The Signal (Lead Story) ───────────────────────────────
+    if top_news and len(top_news) >= 2:
+        lead = top_news[0]
+        also = top_news[1]
+        lead_title = lead.get("title", "")
+        lead_source = lead.get("source", "")
+        lead_desc = truncate(lead.get("description", ""), 300)
+        lead_link = lead.get("link", "")
+        lead_ago = time_ago(lead.get("pub_date", ""))
+        also_title = also.get("title", "")
+        also_source = also.get("source", "")
+        also_desc = truncate(also.get("description", ""), 200)
+        also_link = also.get("link", "")
+        lead_link_a = ""
+        lead_link_end = ""
+        if lead_link:
+            lead_link_a = '<a href="' + lead_link + '" style="color:#CC0000;text-decoration:none;font-size:11px;">Read more &rarr;</a>'
+        also_link_a = ""
+        if also_link:
+            also_link_a = ' <a href="' + also_link + '" style="color:#CC0000;text-decoration:none;font-size:11px;">Read &rarr;</a>'
+        signal_rows = (
+            row("Top Story · " + lead_source, '<strong>' + lead_title + '</strong><br>' + lead_desc + '<br>' + lead_link_a) +
+            row("Also Developing · " + also_source, '<strong>' + also_title + '</strong> — ' + also_desc + also_link_a, last=True)
+        )
+        sec_1_headline = lead_title
+        if len(sec_1_headline) > 80:
+            sec_1_headline = sec_1_headline[:77] + "..."
+        sec_1_deck = "Live from " + lead_source + ". " + lead_ago + "." if lead_ago else "Live from " + lead_source + "."
+    elif top_news and len(top_news) == 1:
+        lead = top_news[0]
+        lead_title = lead.get("title", "")
+        lead_desc = truncate(lead.get("description", ""), 300)
+        signal_rows = row("Top Story · " + lead.get("source", ""), '<strong>' + lead_title + '</strong><br>' + lead_desc, last=True)
+        sec_1_headline = lead_title
+        sec_1_deck = "Live from " + lead.get("source", "") + "."
+    else:
+        signal_rows = row("Status", "News feeds currently unavailable. Check back later.", last=True)
+        sec_1_headline = "Top Stories"
+        sec_1_deck = "Fetching live headlines..."
+
+    _expr_1 = section(1, "The Signal · Lead Story", "#CC0000", sec_1_headline, sec_1_deck, signal_rows)
+
+    # ── SECTION 2: Breaking News (digest of stories 3-7) ─────────────────
+    if top_news and len(top_news) > 2:
+        digest_items = top_news[2:7]
+        breaking_rows = build_news_rows(digest_items, "#CC0000")
+    else:
+        breaking_rows = '<tr><td style="padding:12px 0;"><div style="font-family:Arial,sans-serif;font-size:12px;color:#8A8A8E;">No additional stories available.</div></td></tr>'
+
+    _expr_2 = section(2, "Breaking · News Digest", "#CC0000",
+        "Breaking News",
+        "Headlines from NPR, BBC, Politico, The Hill, Guardian.",
+        breaking_rows)
+
+    # ── SECTION 3: Social Signal ─────────────────────────────────────────
+    if social_signal:
+        social_cards_list = []
+        avatar_colors = ["#007AFF", "#5856D6", "#34C759", "#FF9500", "#CC0000", "#FF2D55", "#AF52DE", "#00C7BE", "#8A8A8E"]
+        for idx, post in enumerate(social_signal):
+            p_initial = post.get("initial", "?")
+            p_handle = post.get("handle", "")
+            p_name = post.get("name", "")
+            p_text = post.get("text", "")
+            p_ago = time_ago_dt(post.get("dt"))
+            a_color = avatar_colors[idx % len(avatar_colors)]
+            time_span = ""
+            if p_ago:
+                time_span = ' <span style="font-family:Arial,sans-serif;font-size:9px;color:#8A8A8E;">&middot; ' + p_ago + '</span>'
+            social_cards_list.append(
+                '<tr><td style="padding:10px 0;border-bottom:1px solid #E5E5EA;">'
+                '<table cellpadding="0" cellspacing="0"><tr>'
+                '<td width="40" valign="top" style="padding-right:12px;">'
+                '<div style="width:36px;height:36px;border-radius:18px;background:' + a_color + ';text-align:center;line-height:36px;font-family:Arial,sans-serif;font-size:16px;font-weight:700;color:#fff;">'
+                + p_initial + '</div></td>'
+                '<td valign="top">'
+                '<div style="font-family:Arial,sans-serif;font-size:12px;font-weight:700;color:#1D1D1F;">'
+                + p_name + ' <span style="font-family:\'Courier New\',monospace;font-size:10px;font-weight:400;color:#8A8A8E;">@' + p_handle + '</span>'
+                + time_span + '</div>'
+                '<div style="font-family:Arial,sans-serif;font-size:12px;color:#3A3A3C;line-height:1.5;margin-top:4px;">'
+                + p_text + '</div>'
+                '</td></tr></table></td></tr>'
+            )
+        sec_social_rows = "".join(social_cards_list)
+        social_inner = '<table width="100%" cellpadding="0" cellspacing="0">' + sec_social_rows + '</table>'
+    else:
+        social_inner = '<div style="font-family:Arial,sans-serif;font-size:12px;color:#8A8A8E;">Social feeds unavailable. Nitter instances may be down.</div>'
+
+    _expr_3 = section(3, "Social Signal · Voices", "#007AFF",
+        "Social Signal",
+        "Latest from key political and media voices.",
+        '<tr><td>' + social_inner + '</td></tr>')
+
+    # ── SECTION 4: Medical Frontier ──────────────────────────────────────
+    if health_news:
+        health_rows = build_news_rows(health_news, "#007AFF")
+    else:
+        health_rows = '<tr><td style="padding:12px 0;"><div style="font-family:Arial,sans-serif;font-size:12px;color:#8A8A8E;">Health news feeds unavailable.</div></td></tr>'
+
+    _expr_4 = section(4, "Medical Frontier · Health", "#007AFF",
+        "Medical & Health News",
+        "Live from STAT News, Politico Health, Health Affairs, and Kaiser Health.",
+        health_rows)
+
+    # ── SECTION 5: Build Log / AI & Tech ─────────────────────────────────
+    if ai_news:
+        ai_rows = build_news_rows(ai_news, "#34C759")
+    else:
+        ai_rows = '<tr><td style="padding:12px 0;"><div style="font-family:Arial,sans-serif;font-size:12px;color:#8A8A8E;">AI/Tech news feeds unavailable.</div></td></tr>'
+
+    _expr_5 = section(5, "Build Log · AI & Tech", "#34C759",
+        "AI & Technology",
+        "Live from TechCrunch AI, MIT Tech Review, and The Verge.",
+        ai_rows)
+
+    # ── SECTION 6: Market Outlook (dynamic week table) ───────────────────
+    now = datetime.datetime.now()
+    today_weekday = now.weekday()  # 0=Monday
+    # Find Monday of this week
+    monday = now - datetime.timedelta(days=today_weekday)
+    day_names = ["MON", "TUE", "WED", "THU", "FRI"]
+    market_week_rows = ""
+    for i in range(5):
+        d = monday + datetime.timedelta(days=i)
+        day_label = day_names[i] + " " + str(d.day)
+        market_week_rows += (
+            '<tr style="border-bottom:1px solid #E5E5EA;">'
+            '<td style="font-family:\'Courier New\',monospace;font-size:9px;color:#8A8A8E;padding:9px 14px 9px 0;vertical-align:top;">' + day_label + '</td>'
+            '<td style="font-family:Arial,sans-serif;font-size:11px;font-weight:600;color:#1D1D1F;padding:9px 14px 9px 0;vertical-align:top;">Market Open</td>'
+            '<td style="font-family:Arial,sans-serif;font-size:11px;color:#3A3A3C;padding:9px 0;vertical-align:top;line-height:1.5;">Regular session 9:30 AM — 4:00 PM ET</td>'
+            '</tr>'
+        )
+
+    sec_6_market = (
+        '<tr><td style="height:2px;background:#F5F5F7;"></td></tr>'
+        '<tr><td style="background:#fff;border:1px solid #E5E5EA;padding:28px 28px 24px;">'
+        '<table cellpadding="0" cellspacing="0" style="margin-bottom:18px;"><tr>'
+        '<td style="font-family:Georgia,serif;font-size:56px;font-weight:900;color:#1D1D1F;line-height:1;opacity:0.30;padding-right:12px;vertical-align:middle;">06</td>'
+        '<td style="vertical-align:middle;border-left:2px solid #8A8A8E;padding-left:10px;">'
+        '<div style="font-family:Arial,sans-serif;font-size:8px;font-weight:700;letter-spacing:0.2em;text-transform:uppercase;color:#8A8A8E;">Market Outlook · Week of ' + date_str + '</div>'
+        '</td></tr></table>'
+        '<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">'
+        '<tr style="border-bottom:1px solid #E5E5EA;">'
+        '<td style="font-family:\'Courier New\',monospace;font-size:8px;font-weight:700;color:#8A8A8E;padding:0 14px 8px 0;width:68px;">DAY</td>'
+        '<td style="font-family:\'Courier New\',monospace;font-size:8px;font-weight:700;color:#8A8A8E;padding:0 14px 8px 0;">EVENT</td>'
+        '<td style="font-family:\'Courier New\',monospace;font-size:8px;font-weight:700;color:#8A8A8E;padding:0 0 8px;">SIGNAL</td>'
+        '</tr>'
+        + market_week_rows +
+        '</table></td></tr>'
     )
-    system = (
-        row("The Incentives", "OPOs held geographic monopolies and reported their own denominators. The 2022 CMS shift to death-certificate metrics was the first real accountability mechanism. In 2025, donations declined for the first time in 14 years after ~20,000 people removed themselves from registries.") +
-        row("The Leverage Points", "1. DCD + NRP normalization — now 49% of all donors. 2. CMS decertification of Tier 2/3 OPOs, late 2026. 3. Trust repair — March 2026 CMS guidance banning OPO coercion. <em>Any system where the actor controls the denominator will optimize for the denominator, not the outcome.</em>", last=True)
+
+    # ── SECTION 7: South Florida ─────────────────────────────────────────
+    if sfla_news:
+        sfla_rows = build_news_rows(sfla_news, "#5856D6")
+    else:
+        sfla_rows = '<tr><td style="padding:12px 0;"><div style="font-family:Arial,sans-serif;font-size:12px;color:#8A8A8E;">South Florida news feeds unavailable.</div></td></tr>'
+
+    _expr_7 = section(7, "South Florida · Local", "#5856D6",
+        "South Florida News",
+        "Live from WLRN, NBC6, CBS Miami, and WSVN.",
+        sfla_rows)
+
+    # ── SECTION 8: Reddit Pulse ──────────────────────────────────────────
+    if reddit_pulse:
+        reddit_rows_list = []
+        for rp in reddit_pulse:
+            r_sub = rp.get("subreddit", "")
+            r_title = rp.get("title", "")
+            r_score = rp.get("score", 0)
+            r_comments = rp.get("comments", 0)
+            r_link = rp.get("permalink", "")
+            if r_score >= 1000:
+                score_str = str(round(r_score / 1000, 1)) + "k"
+            else:
+                score_str = str(r_score)
+            link_open = ""
+            link_close = ""
+            if r_link:
+                link_open = '<a href="' + r_link + '" style="color:#1D1D1F;text-decoration:none;">'
+                link_close = '</a>'
+            reddit_rows_list.append(
+                '<tr><td style="padding:12px 0;border-bottom:1px solid #E5E5EA;">'
+                '<table width="100%" cellpadding="0" cellspacing="0"><tr>'
+                '<td width="60" valign="top" style="padding-right:12px;">'
+                '<div style="background:#FF9500;border-radius:4px;padding:4px 8px;text-align:center;">'
+                '<div style="font-family:Arial,sans-serif;font-size:12px;font-weight:700;color:#fff;">&#9650; ' + score_str + '</div>'
+                '</div></td>'
+                '<td valign="top">'
+                '<div style="font-family:\'Courier New\',monospace;font-size:9px;font-weight:700;letter-spacing:0.08em;color:#FF9500;margin-bottom:3px;">'
+                + r_sub + '</div>'
+                '<div style="font-family:Arial,sans-serif;font-size:13px;font-weight:600;color:#1D1D1F;line-height:1.4;">'
+                + link_open + r_title + link_close + '</div>'
+                '<div style="font-family:Arial,sans-serif;font-size:10px;color:#8A8A8E;margin-top:3px;">'
+                + str(r_comments) + ' comments</div>'
+                '</td></tr></table></td></tr>'
+            )
+        reddit_inner = "".join(reddit_rows_list)
+    else:
+        reddit_inner = '<tr><td style="padding:12px 0;"><div style="font-family:Arial,sans-serif;font-size:12px;color:#8A8A8E;">Reddit feeds unavailable.</div></td></tr>'
+
+    _expr_8 = section(8, "Reddit Pulse · Community", "#FF9500",
+        "Reddit Pulse",
+        "Top posts from key communities.",
+        reddit_inner)
+
+    # ── SECTION 9: Aviation ──────────────────────────────────────────────
+    # Go/No-Go from TAF
+    if taf:
+        taf_status = taf.get("status", "UNKNOWN")
+        taf_color = taf.get("status_color", "#8A8A8E")
+        taf_reason = taf.get("reason", "")
+        go_nogo_html = (
+            '<div style="font-family:Arial,sans-serif;font-size:12px;font-weight:700;color:' + taf_color + ';">' + taf_status + '</div>'
+            '<div style="font-family:Arial,sans-serif;font-size:10px;color:#3A3A3C;">' + taf_reason + '</div>'
+        )
+    else:
+        go_nogo_html = (
+            '<div style="font-family:Arial,sans-serif;font-size:12px;font-weight:700;color:#8A8A8E;">TAF unavailable</div>'
+            '<div style="font-family:Arial,sans-serif;font-size:10px;color:#8A8A8E;">Check aviationweather.gov for latest forecast</div>'
+        )
+
+    metar_table = metar_rows_html(metar)
+
+    sec_9_aviation = (
+        '<tr><td style="height:2px;background:#F5F5F7;"></td></tr>'
+        '<tr><td style="background:#fff;border:1px solid #E5E5EA;padding:28px 28px 24px;">'
+        '<table cellpadding="0" cellspacing="0" style="margin-bottom:18px;"><tr>'
+        '<td style="font-family:Georgia,serif;font-size:56px;font-weight:900;color:#007AFF;line-height:1;opacity:0.30;padding-right:12px;vertical-align:middle;">09</td>'
+        '<td style="vertical-align:middle;border-left:2px solid #007AFF;padding-left:10px;">'
+        '<div style="font-family:Arial,sans-serif;font-size:8px;font-weight:700;letter-spacing:0.2em;text-transform:uppercase;color:#007AFF;">Aviation · IFR Track</div>'
+        '</td></tr></table>'
+        '<table width="100%" cellpadding="0" cellspacing="0"><tr>'
+        '<td width="50%" valign="top" style="padding-right:16px;">'
+        '<div style="font-family:Arial,sans-serif;font-size:8px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:#007AFF;margin-bottom:10px;">Go / No-Go (KFLL TAF)</div>'
+        '<table width="100%" cellpadding="0" cellspacing="0">'
+        '<tr><td style="padding:8px 0;border-bottom:1px solid #E5E5EA;">'
+        '<div style="font-family:\'Courier New\',monospace;font-size:8px;color:#8A8A8E;margin-bottom:2px;">NEXT 12 HOURS</div>'
+        + go_nogo_html +
+        '</td></tr></table>'
+        '<div style="margin-top:12px;font-family:Arial,sans-serif;font-size:8px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:#007AFF;margin-bottom:10px;">METAR</div>'
+        '<table cellpadding="0" cellspacing="0">' + metar_table + '</table>'
+        '</td>'
+        '<td width="50%" valign="top" style="padding-left:16px;border-left:1px solid #E5E5EA;">'
+        '<div style="font-family:Arial,sans-serif;font-size:8px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:#007AFF;margin-bottom:10px;">Alternate Minimums</div>'
+        '<table cellpadding="0" cellspacing="0" width="100%">'
+        '<tr><td style="font-family:\'Courier New\',monospace;font-size:12px;font-weight:700;color:#1D1D1F;padding:5px 14px 5px 0;">KFLL</td><td style="font-family:\'Courier New\',monospace;font-size:11px;color:#8A8A8E;">600-2</td></tr>'
+        '<tr><td style="font-family:\'Courier New\',monospace;font-size:12px;font-weight:700;color:#1D1D1F;padding:5px 14px 5px 0;">KPMP</td><td style="font-family:\'Courier New\',monospace;font-size:11px;color:#8A8A8E;">800-2</td></tr>'
+        '<tr><td style="font-family:\'Courier New\',monospace;font-size:12px;font-weight:700;color:#1D1D1F;padding:5px 14px 5px 0;">KFXE</td><td style="font-family:\'Courier New\',monospace;font-size:11px;color:#8A8A8E;">900-2</td></tr>'
+        '</table>'
+        '</td></tr></table>'
+        '</td></tr>'
     )
-    operator = (
-        row("The Principle", "High-competence people measure themselves against a higher internal standard. Average performers compare to the crowd and conclude they're above it. Exceptional performers compare to the ideal and find themselves lacking.", label_color="#FF9500") +
-        row("How to Apply It", "When you feel underqualified — for a pitch, a role, a risk — ask: <em>Am I measuring myself against the crowd, or against an ideal?</em> The internal critic that makes you good at the work is the same voice that makes you hesitant to claim it.", label_color="#FF9500", last=True)
+
+    # ── ASSEMBLE FULL HTML ───────────────────────────────────────────────
+    live_url_display = LIVE_URL.replace('https://', '')
+    html = (
+        '<!DOCTYPE html>'
+        '<html lang="en"><head><meta charset="UTF-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1.0">'
+        '<title>The Barringer Brief — ' + date_str + '</title>'
+        '</head>'
+        '<body style="margin:0;padding:0;background:#F5F5F7;">'
+        '<table width="100%" cellpadding="0" cellspacing="0" style="background:#F5F5F7;padding:28px 0;">'
+        '<tr><td align="center">'
+        '<table width="620" cellpadding="0" cellspacing="0" style="max-width:620px;width:100%;">'
+
+        # HEADER
+        '<tr><td style="background:#0A2342;padding:10px 24px;border-radius:8px 8px 0 0;">'
+        '<table width="100%" cellpadding="0" cellspacing="0"><tr>'
+        '<td style="font-family:Georgia,serif;font-size:12px;font-weight:700;color:#fff;">The Barringer Brief</td>'
+        '<td align="right" style="font-family:\'Courier New\',monospace;font-size:8px;color:rgba(255,255,255,0.85);letter-spacing:0.08em;text-transform:uppercase;">' + date_str + '</td>'
+        '<td align="right" style="padding-left:12px;"><span style="font-family:Arial,sans-serif;font-size:8px;font-weight:700;background:#CC0000;color:#fff;padding:3px 8px;border-radius:3px;letter-spacing:0.06em;text-transform:uppercase;">DAILY BRIEF</span></td>'
+        '</tr></table></td></tr>'
+
+        # MASTHEAD
+        '<tr><td style="background:#fff;padding:32px 28px 22px;text-align:center;border-left:1px solid #E5E5EA;border-right:1px solid #E5E5EA;">'
+        '<div style="font-family:Georgia,serif;font-size:42px;font-weight:900;color:#1D1D1F;letter-spacing:-1.5px;line-height:1;">The Barringer Brief</div>'
+        '<div style="font-family:Arial,sans-serif;font-size:9px;letter-spacing:0.32em;text-transform:uppercase;color:#8A8A8E;margin-top:12px;">Intelligence &nbsp;·&nbsp; Systems &nbsp;·&nbsp; Medicine &nbsp;·&nbsp; Power</div>'
+        '<div style="width:24px;height:2px;background:#CC0000;margin:14px auto 12px;"></div>'
+        '<div style="font-family:Arial,sans-serif;font-size:12px;color:#8A8A8E;">Good Morning, Jadie &nbsp;·&nbsp; ' + date_str + '</div>'
+        '</td></tr>'
+
+        # WEATHER + METAR
+        '<tr><td style="background:#F5F5F7;border:1px solid #E5E5EA;border-top:none;padding:20px 28px;">'
+        '<div style="font-family:Arial,sans-serif;font-size:8px;font-weight:700;letter-spacing:0.2em;text-transform:uppercase;color:#3A3A3C;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #E5E5EA;">Live Conditions</div>'
+        '<table width="100%" cellpadding="0" cellspacing="0"><tr>'
+        + wx_html +
+        '<td style="vertical-align:top;padding-left:24px;">'
+        '<div style="font-family:Arial,sans-serif;font-size:8px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:#3A3A3C;margin-bottom:10px;">METAR</div>'
+        '<table cellpadding="0" cellspacing="0">' + metar_table + '</table>'
+        '</td></tr></table></td></tr>'
+
+        # MARKETS
+        '<tr><td style="background:#fff;border:1px solid #E5E5EA;border-top:none;padding:16px 16px;">'
+        '<div style="font-family:Arial,sans-serif;font-size:8px;font-weight:700;letter-spacing:0.2em;text-transform:uppercase;color:#8A8A8E;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #E5E5EA;">Markets</div>'
+        '<table width="100%" cellpadding="0" cellspacing="0"><tr>' + mkt_cells + '</tr></table>'
+        '</td></tr>'
+
+        # YOUR WEEK
+        '<tr><td style="background:#fff;border:1px solid #E5E5EA;border-top:none;padding:20px 28px 16px;">'
+        '<div style="font-family:Arial,sans-serif;font-size:8px;font-weight:700;letter-spacing:0.2em;text-transform:uppercase;color:#8A8A8E;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #E5E5EA;">Your Week · Calendar</div>'
+        + cal_html +
+        '</td></tr>'
+
+        # SECTIONS
+        + _expr_1
+        + _expr_2
+        + _expr_3
+        + _expr_4
+        + _expr_5
+        + sec_6_market
+        + _expr_7
+        + _expr_8
+        + sec_9_aviation +
+
+        # FOOTER
+        '<tr><td style="height:8px;background:#F5F5F7;"></td></tr>'
+        '<tr><td style="background:#0A2342;padding:24px 28px;text-align:center;border-radius:0 0 8px 8px;">'
+        '<div style="font-family:Georgia,serif;font-size:16px;font-weight:900;color:#fff;letter-spacing:-0.5px;">The Barringer Brief</div>'
+        '<div style="font-family:Arial,sans-serif;font-size:8px;letter-spacing:0.24em;text-transform:uppercase;color:rgba(255,255,255,0.7);margin-top:6px;">Intelligence · Systems · Medicine · Power</div>'
+        '<div style="width:20px;height:1px;background:#CC0000;margin:12px auto;"></div>'
+        '<a href="' + LIVE_URL + '" style="font-family:Arial,sans-serif;font-size:10px;font-weight:600;color:#fff;text-decoration:none;letter-spacing:0.04em;">' + live_url_display + '</a>'
+        '</td></tr>'
+
+        '</table></td></tr></table>'
+        '</body></html>'
     )
-    medical = (
-        row("The Clinical Reality", "DCD requires a withdrawal of life support decision <em>before</em> donation is discussed. The OPO cannot be in the room. The physician declaring death cannot be on the transplant team. These firewalls exist for a reason.", label_color="#007AFF") +
-        row("The Teaching Point", "Brain death ≠ circulatory death. The March 2026 CMS guidance prohibiting OPOs from influencing withdrawal timing is not housekeeping — it's the system trying to re-establish a firewall that had eroded under volume pressure.", label_color="#007AFF", last=True)
-    )
-    power = (
-        row("The Real Leverage Point", "The Strait of Hormuz. 20% of global oil through a 21-mile channel. Iran doesn't need to win militarily — it only needs to keep the strait disrupted long enough to push Brent above $120 and fracture U.S. ally support. The real war is in the shipping lanes.") +
-        row("What to Watch", "Does the Interim Leadership Council request ceasefire through Qatar/Russia? Does Brent break $110? Does China press the Taiwan Strait to test U.S. attention bandwidth?") +
-        row("Live Data", "Brent: $98.71 (+3.11%) &nbsp;·&nbsp; Strait of Hormuz: blocked &nbsp;·&nbsp; Iran War Day 15", label_color="#8A8A8E", last=True)
-    )
-    build = (
-        row("What's Happening", "Claude Code is now #1 AI coding tool — overtaking Copilot and Cursor in 8 months. Anthropic ships 60–100 internal releases per day. The COBOL announcement: Claude converts 60-year-old banking infrastructure to modern code. IBM lost $40B in one session.", label_color="#34C759") +
-        row("Leverage Point for T-1 Med", "The constraint is no longer 'can we write the code.' It's <em>'do we understand the problem well enough to tell Claude what to build?'</em> Medical background + systems thinking + AI tooling = a very small Venn diagram. That's your moat.", label_color="#34C759", last=True)
-    )
+    return html
 
-    return f"""<!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>The Barringer Brief — {date_str}</title>
-</head>
-<body style="margin:0;padding:0;background:#F5F5F7;">
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#F5F5F7;padding:28px 0;">
-<tr><td align="center">
-<table width="620" cellpadding="0" cellspacing="0" style="max-width:620px;width:100%;">
-
-  <!-- HEADER -->
-  <tr><td style="background:#0A2342;padding:10px 24px;border-radius:8px 8px 0 0;">
-    <table width="100%" cellpadding="0" cellspacing="0"><tr>
-      <td style="font-family:Georgia,serif;font-size:12px;font-weight:700;color:#fff;">The Barringer Brief</td>
-      <td align="right" style="font-family:'Courier New',monospace;font-size:8px;color:rgba(255,255,255,0.85);letter-spacing:0.08em;text-transform:uppercase;">{date_str}</td>
-      <td align="right" style="padding-left:12px;"><span style="font-family:Arial,sans-serif;font-size:8px;font-weight:700;background:#CC0000;color:#fff;padding:3px 8px;border-radius:3px;letter-spacing:0.06em;text-transform:uppercase;">DAILY BRIEF</span></td>
-    </tr></table>
-  </td></tr>
-
-  <!-- MASTHEAD -->
-  <tr><td style="background:#fff;padding:32px 28px 22px;text-align:center;border-left:1px solid #E5E5EA;border-right:1px solid #E5E5EA;">
-    <div style="font-family:Georgia,serif;font-size:42px;font-weight:900;color:#1D1D1F;letter-spacing:-1.5px;line-height:1;">The Barringer Brief</div>
-    <div style="font-family:Arial,sans-serif;font-size:9px;letter-spacing:0.32em;text-transform:uppercase;color:#8A8A8E;margin-top:12px;">Intelligence &nbsp;·&nbsp; Systems &nbsp;·&nbsp; Medicine &nbsp;·&nbsp; Power</div>
-    <div style="width:24px;height:2px;background:#CC0000;margin:14px auto 12px;"></div>
-    <div style="font-family:Arial,sans-serif;font-size:12px;color:#8A8A8E;">Good Morning, Jadie &nbsp;·&nbsp; {date_str}</div>
-  </td></tr>
-
-  <!-- WEATHER + METAR -->
-  <tr><td style="background:#F5F5F7;border:1px solid #E5E5EA;border-top:none;padding:20px 28px;">
-    <div style="font-family:Arial,sans-serif;font-size:8px;font-weight:700;letter-spacing:0.2em;text-transform:uppercase;color:#3A3A3C;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #E5E5EA;">Live Conditions</div>
-    <table width="100%" cellpadding="0" cellspacing="0"><tr>
-      {wx_html}
-      <td style="vertical-align:top;padding-left:24px;">
-        <div style="font-family:Arial,sans-serif;font-size:8px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:#3A3A3C;margin-bottom:10px;">METAR</div>
-        <table cellpadding="0" cellspacing="0">{metar_rows_html(metar)}</table>
-      </td>
-    </tr></table>
-  </td></tr>
-
-  <!-- MARKETS -->
-  <tr><td style="background:#fff;border:1px solid #E5E5EA;border-top:none;padding:16px 16px;">
-    <div style="font-family:Arial,sans-serif;font-size:8px;font-weight:700;letter-spacing:0.2em;text-transform:uppercase;color:#8A8A8E;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #E5E5EA;">Markets</div>
-    <table width="100%" cellpadding="0" cellspacing="0"><tr>{mkt_cells}</tr></table>
-  </td></tr>
-
-  <!-- YOUR WEEK -->
-  <tr><td style="background:#fff;border:1px solid #E5E5EA;border-top:none;padding:20px 28px 16px;">
-    <div style="font-family:Arial,sans-serif;font-size:8px;font-weight:700;letter-spacing:0.2em;text-transform:uppercase;color:#8A8A8E;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #E5E5EA;">Your Week · Calendar</div>
-    {cal_html}
-  </td></tr>
-
-  {section(1, "The Signal · Lead Story", "#CC0000",
-    "The Epstein Files Weren't Released. They Were Managed.",
-    "The DOJ called them \"duplicative.\" Journalists called that a lie. Here's the system underneath the story.",
-    signal)}
-
-  {section(2, "System Breakdown · Incentives", "#CC0000",
-    "How Organ Procurement Actually Works — And Why It's Structurally Broken",
-    "49,065 transplants in 2025 was a record. But the system left tens of thousands of usable organs discarded.",
-    system)}
-
-  {section(3, "Operator Insight · Mental Leverage", "#FF9500",
-    "Why Exceptional People Systematically Underestimate Themselves",
-    "Intelligence agencies have known for decades: the most capable candidates are most likely to self-select out.",
-    operator)}
-
-  {section(4, "Medical Frontier · ICU · Transplant", "#007AFF",
-    "Why DCD Timing Is the Most Ethically Loaded Moment in Medicine",
-    "Most people think organ donation decisions are made at death. They're made in the hours before it.",
-    medical)}
-
-  {section(5, "Power Map · Geopolitics", "#CC0000",
-    "The Iran War: A Systems Map of Who Holds the Leverage",
-    "Trump: 'most intense day of strikes' coming Tuesday. Here's who holds what card.",
-    power)}
-
-  <!-- MARKET OUTLOOK TABLE -->
-  <tr><td style="height:2px;background:#F5F5F7;"></td></tr>
-  <tr><td style="background:#fff;border:1px solid #E5E5EA;padding:28px 28px 24px;">
-    <table cellpadding="0" cellspacing="0" style="margin-bottom:18px;"><tr>
-      <td style="font-family:Georgia,serif;font-size:56px;font-weight:900;color:#1D1D1F;line-height:1;opacity:0.30;padding-right:12px;vertical-align:middle;">06</td>
-      <td style="vertical-align:middle;border-left:2px solid #8A8A8E;padding-left:10px;">
-        <div style="font-family:Arial,sans-serif;font-size:8px;font-weight:700;letter-spacing:0.2em;text-transform:uppercase;color:#8A8A8E;">Market Outlook · Week of {date_str}</div>
-      </td>
-    </tr></table>
-    <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
-      <tr style="border-bottom:1px solid #E5E5EA;">
-        <td style="font-family:'Courier New',monospace;font-size:8px;font-weight:700;color:#8A8A8E;padding:0 14px 8px 0;width:68px;">DAY</td>
-        <td style="font-family:'Courier New',monospace;font-size:8px;font-weight:700;color:#8A8A8E;padding:0 14px 8px 0;">EVENT</td>
-        <td style="font-family:'Courier New',monospace;font-size:8px;font-weight:700;color:#8A8A8E;padding:0 0 8px;">SIGNAL</td>
-      </tr>
-      <tr style="border-bottom:1px solid #E5E5EA;"><td style="font-family:'Courier New',monospace;font-size:9px;color:#8A8A8E;padding:9px 14px 9px 0;vertical-align:top;">MON 16</td><td style="font-family:Arial,sans-serif;font-size:11px;font-weight:600;color:#1D1D1F;padding:9px 14px 9px 0;vertical-align:top;">Nvidia GTC begins</td><td style="font-family:Arial,sans-serif;font-size:11px;color:#3A3A3C;padding:9px 0;vertical-align:top;line-height:1.5;">AI narrative vs. Iran anxiety — keynote is the swing factor</td></tr>
-      <tr style="border-bottom:1px solid #E5E5EA;"><td style="font-family:'Courier New',monospace;font-size:9px;color:#8A8A8E;padding:9px 14px 9px 0;vertical-align:top;">TUE 17</td><td style="font-family:Arial,sans-serif;font-size:11px;font-weight:600;color:#1D1D1F;padding:9px 14px 9px 0;vertical-align:top;">ADP Employment</td><td style="font-family:Arial,sans-serif;font-size:11px;color:#3A3A3C;padding:9px 0;vertical-align:top;line-height:1.5;">Labor softening = dovish pressure on Fed</td></tr>
-      <tr style="border-bottom:1px solid #E5E5EA;"><td style="font-family:'Courier New',monospace;font-size:9px;color:#8A8A8E;padding:9px 14px 9px 0;vertical-align:top;">WED 18</td><td style="font-family:Arial,sans-serif;font-size:11px;font-weight:600;color:#1D1D1F;padding:9px 14px 9px 0;vertical-align:top;">FOMC + Dot Plot</td><td style="font-family:Arial,sans-serif;font-size:11px;color:#3A3A3C;padding:9px 0;vertical-align:top;line-height:1.5;">Hawkish hold likely. Any cut reduction in dot plot = selloff</td></tr>
-      <tr style="border-bottom:1px solid #E5E5EA;"><td style="font-family:'Courier New',monospace;font-size:9px;color:#8A8A8E;padding:9px 14px 9px 0;vertical-align:top;">THU 19</td><td style="font-family:Arial,sans-serif;font-size:11px;font-weight:600;color:#1D1D1F;padding:9px 14px 9px 0;vertical-align:top;">Micron · Nike · FedEx</td><td style="font-family:Arial,sans-serif;font-size:11px;color:#3A3A3C;padding:9px 0;vertical-align:top;line-height:1.5;">Micron = AI memory bellwether. FedEx = Iran supply chain</td></tr>
-      <tr><td style="font-family:'Courier New',monospace;font-size:9px;color:#8A8A8E;padding:9px 14px 9px 0;vertical-align:top;">FRI 20</td><td style="font-family:Arial,sans-serif;font-size:11px;font-weight:600;color:#1D1D1F;padding:9px 14px 9px 0;vertical-align:top;">BoE · Global PMIs</td><td style="font-family:Arial,sans-serif;font-size:11px;color:#3A3A3C;padding:9px 0;vertical-align:top;line-height:1.5;">Will Europe blink on rate holds given energy shock?</td></tr>
-    </table>
-    <div style="margin-top:14px;padding-top:14px;border-top:1px solid #E5E5EA;font-family:Arial,sans-serif;font-size:11px;color:#3A3A3C;line-height:1.7;">
-      <strong style="color:#1D1D1F;">Risk:</strong> Brent $110 → EU central banks re-price → Fed paralyzed → stagflation base case.<br>
-      <strong style="color:#1D1D1F;">Wildcard:</strong> Nvidia GTC. One strong Blackwell Ultra demo reprices the entire AI trade.
-    </div>
-  </td></tr>
-
-  <!-- SOUTH FLORIDA -->
-  <tr><td style="height:2px;background:#F5F5F7;"></td></tr>
-  <tr><td style="background:#fff;border:1px solid #E5E5EA;padding:28px 28px 24px;">
-    <table cellpadding="0" cellspacing="0" style="margin-bottom:18px;"><tr>
-      <td style="font-family:Georgia,serif;font-size:56px;font-weight:900;color:#5856D6;line-height:1;opacity:0.30;padding-right:12px;vertical-align:middle;">07</td>
-      <td style="vertical-align:middle;border-left:2px solid #5856D6;padding-left:10px;">
-        <div style="font-family:Arial,sans-serif;font-size:8px;font-weight:700;letter-spacing:0.2em;text-transform:uppercase;color:#5856D6;">South Florida · This Weekend</div>
-      </td>
-    </tr></table>
-    <table width="100%" cellpadding="0" cellspacing="0"><tr>
-      <td width="50%" valign="top" style="padding-right:16px;">
-        <div style="font-family:Arial,sans-serif;font-size:8px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:#5856D6;margin-bottom:10px;">Date Night</div>
-        <div style="font-family:Georgia,serif;font-size:13px;font-weight:700;color:#1D1D1F;margin-bottom:3px;">Hell's Kitchen — The Musical</div>
-        <div style="font-family:Arial,sans-serif;font-size:11px;color:#3A3A3C;line-height:1.6;margin-bottom:10px;">Broward Center. Tony Award-winner built on Alicia Keys' catalog. Through Mar 22.</div>
-        <div style="font-family:Georgia,serif;font-size:13px;font-weight:700;color:#1D1D1F;margin-bottom:3px;">Candlelight: Beatles Tribute</div>
-        <div style="font-family:Arial,sans-serif;font-size:11px;color:#3A3A3C;line-height:1.6;">Sun Mar 15. Hotel Colonnade, Coral Gables.</div>
-      </td>
-      <td width="50%" valign="top" style="padding-left:16px;border-left:1px solid #E5E5EA;">
-        <div style="font-family:Arial,sans-serif;font-size:8px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:#34C759;margin-bottom:10px;">Sports + Outdoors</div>
-        <div style="font-family:Georgia,serif;font-size:13px;font-weight:700;color:#1D1D1F;margin-bottom:3px;">Miami Open Tennis</div>
-        <div style="font-family:Arial,sans-serif;font-size:11px;color:#3A3A3C;line-height:1.6;margin-bottom:10px;">Mar 15–29. Hard Rock Stadium. Top ATP + WTA.</div>
-        <div style="font-family:Georgia,serif;font-size:13px;font-weight:700;color:#1D1D1F;margin-bottom:3px;">Calle Ocho Music Festival</div>
-        <div style="font-family:Arial,sans-serif;font-size:11px;color:#3A3A3C;line-height:1.6;">Today. Little Havana. World's largest Latin music festival. Free.</div>
-      </td>
-    </tr>
-    <tr><td colspan="2" style="padding-top:14px;">
-      <div style="background:#F5F5F7;border:1px solid #E5E5EA;border-radius:4px;padding:10px 14px;">
-        <span style="font-family:Arial,sans-serif;font-size:8px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:#1D1D1F;">Weston &nbsp;&nbsp;</span>
-        <span style="font-family:Arial,sans-serif;font-size:11px;color:#3A3A3C;">Water Matters Day — today. Next: Symphony in the Park "Sounds of Spring" — Fri Mar 28, 6:30 PM, free.</span>
-      </div>
-    </td></tr></table>
-  </td></tr>
-
-  {section(8, "Build Log · T-1 Med · AI Tooling", "#34C759",
-    "Claude Code Is Eating Software Engineering",
-    "When IBM lost $40B in one session after an Anthropic blog post, that was a signal. Here's how to read it.",
-    build)}
-
-  <!-- AVIATION -->
-  <tr><td style="height:2px;background:#F5F5F7;"></td></tr>
-  <tr><td style="background:#fff;border:1px solid #E5E5EA;padding:28px 28px 24px;">
-    <table cellpadding="0" cellspacing="0" style="margin-bottom:18px;"><tr>
-      <td style="font-family:Georgia,serif;font-size:56px;font-weight:900;color:#007AFF;line-height:1;opacity:0.30;padding-right:12px;vertical-align:middle;">09</td>
-      <td style="vertical-align:middle;border-left:2px solid #007AFF;padding-left:10px;">
-        <div style="font-family:Arial,sans-serif;font-size:8px;font-weight:700;letter-spacing:0.2em;text-transform:uppercase;color:#007AFF;">Aviation · IFR Track</div>
-      </td>
-    </tr></table>
-    <table width="100%" cellpadding="0" cellspacing="0"><tr>
-      <td width="50%" valign="top" style="padding-right:16px;">
-        <div style="font-family:Arial,sans-serif;font-size:8px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:#007AFF;margin-bottom:10px;">Go / No-Go</div>
-        <table width="100%" cellpadding="0" cellspacing="0">
-          <tr><td style="padding:8px 0;border-bottom:1px solid #E5E5EA;">
-            <div style="font-family:'Courier New',monospace;font-size:8px;color:#8A8A8E;margin-bottom:2px;">TODAY</div>
-            <div style="font-family:Arial,sans-serif;font-size:12px;font-weight:700;color:#34C759;">GO — VFR</div>
-            <div style="font-family:Arial,sans-serif;font-size:10px;color:#3A3A3C;">Winds light · vis 10SM</div>
-          </td></tr>
-          <tr><td style="padding:8px 0;border-bottom:1px solid #E5E5EA;">
-            <div style="font-family:'Courier New',monospace;font-size:8px;color:#8A8A8E;margin-bottom:2px;">TOMORROW</div>
-            <div style="font-family:Arial,sans-serif;font-size:12px;font-weight:700;color:#CC0000;">NO-GO</div>
-            <div style="font-family:Arial,sans-serif;font-size:10px;color:#3A3A3C;">Ceilings 1,500 ft · embedded convection · 50 mph gusts</div>
-          </td></tr>
-          <tr><td style="padding:8px 0;">
-            <div style="font-family:'Courier New',monospace;font-size:8px;color:#8A8A8E;margin-bottom:2px;">MONDAY</div>
-            <div style="font-family:Arial,sans-serif;font-size:12px;font-weight:700;color:#34C759;">GO</div>
-            <div style="font-family:Arial,sans-serif;font-size:10px;color:#3A3A3C;">System clears · good week for IFR dual</div>
-          </td></tr>
-        </table>
-      </td>
-      <td width="50%" valign="top" style="padding-left:16px;border-left:1px solid #E5E5EA;">
-        <div style="font-family:Arial,sans-serif;font-size:8px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:#007AFF;margin-bottom:10px;">Alternate Minimums</div>
-        <table cellpadding="0" cellspacing="0" width="100%">
-          <tr><td style="font-family:'Courier New',monospace;font-size:12px;font-weight:700;color:#1D1D1F;padding:5px 14px 5px 0;">KFLL</td><td style="font-family:'Courier New',monospace;font-size:11px;color:#8A8A8E;">600-2</td></tr>
-          <tr><td style="font-family:'Courier New',monospace;font-size:12px;font-weight:700;color:#1D1D1F;padding:5px 14px 5px 0;">KPMP</td><td style="font-family:'Courier New',monospace;font-size:11px;color:#8A8A8E;">800-2</td></tr>
-          <tr><td style="font-family:'Courier New',monospace;font-size:12px;font-weight:700;color:#1D1D1F;padding:5px 14px 5px 0;">KFXE</td><td style="font-family:'Courier New',monospace;font-size:11px;color:#8A8A8E;">900-2</td></tr>
-        </table>
-        <div style="margin-top:12px;padding:10px 12px;background:#F5F5F7;border:1px solid #E5E5EA;border-radius:4px;">
-          <div style="font-family:Arial,sans-serif;font-size:8px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#FF9500;margin-bottom:4px;">Decision Brief</div>
-          <div style="font-family:Arial,sans-serif;font-size:10px;color:#3A3A3C;line-height:1.6;">Sunday triggers the 1-2-3 rule at KFLL. Pull the RNAV 28L plate. Brief the missed approach out loud — the DPE will ask you cold.</div>
-        </div>
-      </td>
-    </tr></table>
-  </td></tr>
-
-  <!-- FOOTER -->
-  <tr><td style="height:8px;background:#F5F5F7;"></td></tr>
-  <tr><td style="background:#0A2342;padding:24px 28px;text-align:center;border-radius:0 0 8px 8px;">
-    <div style="font-family:Georgia,serif;font-size:16px;font-weight:900;color:#fff;letter-spacing:-0.5px;">The Barringer Brief</div>
-    <div style="font-family:Arial,sans-serif;font-size:8px;letter-spacing:0.24em;text-transform:uppercase;color:rgba(255,255,255,0.7);margin-top:6px;">Intelligence · Systems · Medicine · Power</div>
-    <div style="width:20px;height:1px;background:#CC0000;margin:12px auto;"></div>
-    <a href="{LIVE_URL}" style="font-family:Arial,sans-serif;font-size:10px;font-weight:600;color:#fff;text-decoration:none;letter-spacing:0.04em;">{LIVE_URL.replace('https://','')}</a>
-  </td></tr>
-
-</table></td></tr></table>
-</body></html>"""
-
-# ── SEND VIA RESEND ───────────────────────────────────────────────────────────
+# ── SEND VIA RESEND (uses curl — bypasses urllib TLS fingerprint blocks) ─────
 def send_email(subject, html):
-    if not RESEND_API_KEY:
-        log("[ERROR] RESEND_API_KEY environment variable not set.")
-        return None
     payload = json.dumps({
         "from":    FROM_ADDRESS,
         "to":      [RECIPIENT],
         "subject": subject,
         "html":    html,
-    }).encode()
-    req = urllib.request.Request(
-        "https://api.resend.com/emails",
-        data=payload,
-        headers={
-            "Authorization": f"Bearer {RESEND_API_KEY}",
-            "Content-Type":  "application/json",
-        },
-        method="POST"
-    )
+    })
     try:
-        with urllib.request.urlopen(req, timeout=15) as r:
-            result = json.loads(r.read())
-            return result.get("id")
-    except urllib.error.HTTPError as e:
-        err = e.read().decode()
-        log(f"[RESEND ERROR] {e.code}: {err}")
+        result = subprocess.run(
+            [
+                "curl", "-s", "-X", "POST",
+                "https://api.resend.com/emails",
+                "-H", "Authorization: Bearer " + RESEND_API_KEY,
+                "-H", "Content-Type: application/json",
+                "-d", payload,
+            ],
+            capture_output=True, text=True, timeout=20
+        )
+        if result.returncode != 0:
+            log(f"[RESEND ERROR] curl failed: {result.stderr}")
+            return None
+        data = json.loads(result.stdout)
+        if "id" in data:
+            return data["id"]
+        log(f"[RESEND ERROR] {result.stdout}")
         return None
     except Exception as e:
         log(f"[SEND ERROR] {e}")
@@ -598,21 +1134,37 @@ def main():
 
     weather         = fetch_weather()
     metar           = fetch_metar()
+    taf             = fetch_taf()
     markets         = fetch_markets()
     calendar_events = fetch_calendar()
+    top_news        = fetch_top_news()
+    health_news     = fetch_health_news()
+    ai_news         = fetch_ai_news()
+    sfla_news       = fetch_sfla_news()
+    social_signal   = fetch_social_signal()
+    reddit_pulse    = fetch_reddit_pulse()
 
     log(f"  Weather:  {'OK' if weather else 'FAILED'}")
     log(f"  METAR:    {len(metar)} airports")
+    log(f"  TAF:      {'OK' if taf else 'FAILED'}")
     log(f"  Markets:  {len(markets)} tickers")
     log(f"  Calendar: {len(calendar_events)} events")
+    log(f"  News:     {len(top_news)} stories")
+    log(f"  Health:   {len(health_news)} stories")
+    log(f"  AI/Tech:  {len(ai_news)} stories")
+    log(f"  SFLA:     {len(sfla_news)} stories")
+    log(f"  Social:   {len(social_signal)} accounts")
+    log(f"  Reddit:   {len(reddit_pulse)} subreddits")
 
-    html     = build_email_html(weather, metar, markets, calendar_events, date_str)
+    html     = build_email_html(weather, metar, taf, markets, calendar_events, date_str,
+                                top_news, health_news, ai_news, sfla_news,
+                                social_signal, reddit_pulse)
     email_id = send_email(subject, html)
 
     if email_id:
-        log(f"  ✓ Email sent to {RECIPIENT} (id: {email_id})")
+        log(f"  Email sent to {RECIPIENT} (id: {email_id})")
     else:
-        log("  ✗ Email FAILED")
+        log("  Email FAILED — check ~/Library/Logs/barringer-brief.log")
         sys.exit(1)
 
 if __name__ == "__main__":
