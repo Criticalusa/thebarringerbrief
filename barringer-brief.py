@@ -377,7 +377,7 @@ def fetch_calendar():
         script = (
             'set output to ""\n'
             'set d1 to current date\n'
-            'set d2 to d1 + (7 * days)\n'
+            'set d2 to d1 + (1 * days)\n'
             'tell application "Calendar"\n'
             '    try\n'
             '        tell calendar "' + safe + '"\n'
@@ -422,8 +422,14 @@ def fetch_calendar():
                             pass
                 except Exception:
                     pass
-                time_str = dt.strftime("%A, %b %-d · %-I:%M %p") if dt else time_raw
-                dt_key = dt.isoformat() if dt else time_raw
+                if dt:
+                    time_str = dt.strftime("%-I:%M %p")
+                    dt_key = dt.isoformat()
+                else:
+                    # Strip seconds from raw time string e.g. "10:00:00 AM" -> "10:00 AM"
+                    import re as _re
+                    time_str = _re.sub(r"(\d{1,2}:\d{2}):\d{2}", r"\1", time_raw)
+                    dt_key = time_raw
                 events.append({"title": title, "time": time_str,
                                 "dt": dt_key, "location": "", "attendees": [],
                                 "calendar": cal_name})
@@ -818,11 +824,13 @@ def build_email_html(weather, metar, taf, markets, calendar_events, date_str,
         for ev in calendar_events:
             att  = ev.get("attendees", [])
             loc  = ev.get("location","")
-            parts = ev["time"].split(" · ") if " · " in ev["time"] else [ev["time"], ""]
-            day_part  = parts[0]
-            time_part = parts[1] if len(parts) > 1 else ""
-            day_abbr  = day_part[:3].upper() if day_part else ""
-            day_num   = day_part.split()[-1] if day_part else ""
+            # time is now just "10:00 AM" — get today's day/number for the icon
+            import datetime as _dt
+            _today = _dt.datetime.now()
+            day_abbr  = _today.strftime("%a").upper()
+            day_num   = _today.strftime("%-d")
+            time_part = ev["time"]  # e.g. "10:00 AM"
+            cal_label = ev.get("calendar", "")
             att_html  = ""
             if att:
                 att_html = '<div style="font-family:Arial,sans-serif;font-size:10px;color:#8A8A8E;margin-top:2px;">' + " &nbsp;·&nbsp; ".join(att) + '</div>'
@@ -846,7 +854,7 @@ def build_email_html(weather, metar, taf, markets, calendar_events, date_str,
             )
         cal_html = '<table width="100%" cellpadding="0" cellspacing="0">' + cal_rows + '</table>'
     else:
-        cal_html = "<div style='font-family:Arial,sans-serif;font-size:12px;color:#8A8A8E;padding:8px 0;'>No events scheduled this week.</div>"
+        cal_html = "<div style='font-family:Arial,sans-serif;font-size:12px;color:#8A8A8E;padding:8px 0;'>No events scheduled for today.</div>"
 
     # ── Section helper (kept as-is) ──────────────────────────────────────
     def section(num, tag, tag_color, headline, deck, rows_html):
@@ -1172,7 +1180,7 @@ def build_email_html(weather, metar, taf, markets, calendar_events, date_str,
 
         # YOUR WEEK
         '<tr><td style="background:#fff;border:1px solid #E5E5EA;border-top:none;padding:20px 28px 16px;">'
-        '<div style="font-family:Arial,sans-serif;font-size:8px;font-weight:700;letter-spacing:0.2em;text-transform:uppercase;color:#8A8A8E;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #E5E5EA;">Your Week · Calendar</div>'
+        '<div style="font-family:Arial,sans-serif;font-size:8px;font-weight:700;letter-spacing:0.2em;text-transform:uppercase;color:#8A8A8E;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #E5E5EA;">Today · Calendar</div>'
         + cal_html +
         '</td></tr>'
 
