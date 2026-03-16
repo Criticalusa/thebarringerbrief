@@ -1151,51 +1151,175 @@ def build_email_html(weather, metar, taf, markets, calendar_events, date_str,
         reddit_inner)
 
     # ── SECTION 9: Aviation ──────────────────────────────────────────────
-    # Go/No-Go from TAF
-    if taf:
-        taf_status = taf.get("status", "UNKNOWN")
-        taf_color = taf.get("status_color", "#8A8A8E")
-        taf_reason = taf.get("reason", "")
-        go_nogo_html = (
-            '<div style="font-family:Arial,sans-serif;font-size:12px;font-weight:700;color:' + taf_color + ';">' + taf_status + '</div>'
-            '<div style="font-family:Arial,sans-serif;font-size:10px;color:#3A3A3C;">' + taf_reason + '</div>'
-        )
-    else:
-        go_nogo_html = (
-            '<div style="font-family:Arial,sans-serif;font-size:12px;font-weight:700;color:#8A8A8E;">TAF unavailable</div>'
-            '<div style="font-family:Arial,sans-serif;font-size:10px;color:#8A8A8E;">Check aviationweather.gov for latest forecast</div>'
-        )
+    import re as _re2, datetime as _dt_av
 
+    def _taf_day_rows(taf_data, metar_data):
+        rows = ""
+        if not taf_data:
+            return "<div style=\"font-family:Arial,sans-serif;font-size:12px;color:#8A8A8E;\">TAF unavailable</div>"
+        raw = taf_data.get("raw", "")
+        groups = _re2.split(r'(?=FM\d{6}|TEMPO|BECMG)', " ".join(raw.split()))
+        kfll = metar_data.get("KFLL", {}) if metar_data else {}
+        kfxe = metar_data.get("KFXE", {}) if metar_data else {}
+        now = _dt_av.datetime.now()
+        today_label = "TODAY (" + now.strftime("%a").upper() + ")"
+        today_parts = []
+        if kfll:
+            today_parts.append("KFLL: " + str(kfll.get("cover","")) + " " + str(kfll.get("wdir",0)) + "/" + str(kfll.get("wspd",0)) + "kt")
+        if kfxe:
+            today_parts.append("KFXE: " + str(kfxe.get("cover","")) + " " + str(kfxe.get("wspd",0)) + "kt")
+        today_summary = " · ".join(today_parts) if today_parts else "See METAR"
+        today_reason = taf_data.get("reason", "")
+        if today_reason:
+            today_summary = today_summary + " · " + today_reason
+        today_status = taf_data.get("status", "GO")
+        today_color = taf_data.get("status_color", "#34C759")
+
+        day_rows_data = []
+        seen_days = set()
+        for grp in groups:
+            grp = grp.strip()
+            if not grp:
+                continue
+            fm_m = _re2.match(r'FM(\d{2})(\d{2})(\d{2})', grp)
+            if not fm_m:
+                continue
+            fm_day = int(fm_m.group(1))
+            if fm_day == now.day or fm_day in seen_days:
+                continue
+            seen_days.add(fm_day)
+            wind_m = _re2.search(r'(\d{3}|VRB)(\d{2,3})(?:G(\d{2,3}))?KT', grp)
+            wspd_f = int(wind_m.group(2)) if wind_m else 0
+            wgst_f = int(wind_m.group(3)) if (wind_m and wind_m.group(3)) else 0
+            vis_f = 6.0
+            if "M1/4SM" in grp:
+                vis_f = 0.25
+            elif "P6SM" in grp:
+                vis_f = 6.0
+            else:
+                vm = _re2.search(r'(\d+)SM', grp)
+                if vm:
+                    vis_f = float(vm.group(1))
+            ceil_f = 99999
+            for cm in _re2.finditer(r'(BKN|OVC)(\d{3})', grp):
+                b = int(cm.group(2)) * 100
+                if b < ceil_f:
+                    ceil_f = b
+            reasons_f = []
+            if ceil_f < 500 or vis_f < 1 or wgst_f > 35:
+                st_f, sc_f = "NO-GO", "#CC0000"
+                if ceil_f < 500: reasons_f.append("Ceilings " + str(ceil_f) + "ft")
+                if vis_f < 1: reasons_f.append("Vis " + str(vis_f) + "SM")
+                if wgst_f > 35: reasons_f.append("Gusts " + str(wgst_f) + "kt")
+            elif ceil_f < 1000 or vis_f < 3 or wgst_f > 25:
+                st_f, sc_f = "MARGINAL", "#FF9500"
+                if ceil_f < 1000: reasons_f.append("Ceilings " + str(ceil_f) + "ft")
+                if vis_f < 3: reasons_f.append("Vis " + str(vis_f) + "SM")
+                if wgst_f > 25: reasons_f.append("Gusts " + str(wgst_f) + "kt")
+            else:
+                st_f, sc_f = "GO", "#34C759"
+                reasons_f.append("Winds " + str(wspd_f) + ("G" + str(wgst_f) if wgst_f else "") + "kt")
+                reasons_f.append("Vis " + str(vis_f) + "+ SM")
+            try:
+                future_date = now.replace(day=fm_day)
+                day_name = future_date.strftime("%A").upper()
+            except Exception:
+                day_name = "DAY " + str(fm_day)
+            day_rows_data.append({"label": day_name, "status": st_f, "color": sc_f,
+                                   "summary": " · ".join(reasons_f)})
+            if len(day_rows_data) >= 2:
+                break
+
+        def _row(label, status, color, summary, is_today=False):
+            bg = "background:#F5F5F7;" if is_today else ""
+            wt = "700" if is_today else "500"
+            return (
+                "<tr><td style=\"padding:10px 12px;" + bg + "border-bottom:1px solid #E5E5EA;\">"
+                "<table cellpadding=\"0\" cellspacing=\"0\" width=\"100%\"><tr>"
+                "<td width=\"90\"><div style=\"font-family:Arial,sans-serif;font-size:9px;font-weight:700;color:#8A8A8E;letter-spacing:0.06em;\">" + label + "</div></td>"
+                "<td width=\"75\"><div style=\"font-family:Arial,sans-serif;font-size:11px;font-weight:" + wt + ";color:" + color + ";\">" + status + "</div></td>"
+                "<td><div style=\"font-family:Arial,sans-serif;font-size:10px;color:#3A3A3C;line-height:1.4;\">" + summary + "</div></td>"
+                "</tr></table></td></tr>"
+            )
+
+        rows += _row(today_label, today_status, today_color, today_summary, is_today=True)
+        for d in day_rows_data:
+            rows += _row(d["label"], d["status"], d["color"], d["summary"])
+        return rows
+
+    def _ifr_concept():
+        concepts = [
+            {"title": "The 1-2-3 Rule",
+             "body": "FAR 91.169: destination forecast &lt; 2,000ft ceiling or 3SM vis within &plusmn;1hr of ETA requires an alternate. More than compliance — it forces the question: <em>what is my exit strategy?</em> That is the IFR mindset shift VFR pilots have to make.",
+             "code": "KFLL (Fort Lauderdale) — 600-2\nKPMP (Pompano Beach)  — 800-2\nKFXE (Executive)      — 900-2\n\nKnow these cold. The DPE will ask."},
+            {"title": "Holding Pattern Entry",
+             "body": "Three entries: direct, teardrop, parallel. ATC gives you the fix with seconds to spare. Mental model: stand at the fix facing the outbound course. Right side — direct. Left rear — teardrop. Left front — parallel. Draw it until it's instant.",
+             "code": "Standard hold: right turns, 1-min legs\nAbove 14,000ft: 1.5-min legs\nAlways get EFC time before entering"},
+            {"title": "Intercepting the Localizer",
+             "body": "Most IFR mistakes happen on final — pilots intercept and immediately chase the needle. Rule: bracket. One dot off = half the correction. Two dots = full correction. The localizer gets 5x more sensitive inside the FAF. Big corrections at 1,000ft AGL means you're already behind.",
+             "code": "Full deflection = 2.5° from centerline\nGlideslope: 3° = ~300ft/nm descent\nDA KFLL ILS 10L: 200ft HAT, RVR 1800"},
+            {"title": "The 5 Ts — Never Skip a Fix",
+             "body": "<strong>Turn, Time, Twist, Throttle, Talk.</strong> Every fix, every time. This is the habit that keeps you ahead of the airplane. Build it VFR so it's automatic IFR.",
+             "code": "Turn     — new heading\nTime     — outbound/leg timing\nTwist    — set OBS/course\nThrottle — power as needed\nTalk     — ATC or position report"},
+            {"title": "AIRMET Zulu — Icing Awareness",
+             "body": "Your aircraft is not FIKI certified. Visible moisture + 0°C to -20°C = you need an out. South Florida is generally benign but cross-countries north in winter require serious pirep checks.",
+             "code": "AIRMET Zulu = icing advisory\nFreeze level KFLL: 8,000-12,000ft typical\nCentral FL winter cumulus: respect them"},
+            {"title": "Lost Comms — 91.185",
+             "body": "Squawk 7600. Fly the highest of assigned, expected, or filed altitude. Fly the filed route. Begin descent at EFC or ETA. The controller knows the rules — they'll protect your airspace. The mistake is panicking.",
+             "code": "AVE F: Assigned, Vectored, Expected, Filed\nRoute: last cleared → expected → filed\nDescent: EFC or ETA — whichever is later"},
+            {"title": "DA vs. MDA",
+             "body": "Precision approaches (ILS, LPV) use DA — you're descending on a glideslope and must see the runway at DA or go missed. Non-precision (LNAV, VOR) use MDA — level off and look. Cannot descend below MDA without required visual references.",
+             "code": "ILS KFLL RWY 10L:  DA  200ft, RVR 1800\nRNAV KFXE RWY 26:  MDA 460ft, 1SM vis\nRNAV KPMP RWY 15:  MDA 400ft, 1SM vis"},
+        ]
+        briefs = [
+            "Pull the KFLL RNAV 28L approach plate. Study the missed approach. Brief it out loud — the DPE will ask you to brief an approach cold.",
+            "Draw all three holding entries from memory. Time yourself. Under 10 seconds is DPE-ready.",
+            "Fly the ILS 10L at KFLL in the sim. No corrections bigger than the needle deflection.",
+            "Run the 5 Ts at every fix on your next flight — even VFR. Build the habit before the checkride.",
+            "Get a weather briefing for a cross-country to KCLT. Identify all AIRMETs along the route.",
+            "Practice the lost-comms procedure out loud: squawk, route, altitude, timing.",
+            "Brief the RNAV KFXE approach cold. State MDA, MAP, and the missed procedure.",
+        ]
+        idx = _dt_av.datetime.now().timetuple().tm_yday % len(concepts)
+        return concepts[idx], briefs[idx]
+
+    concept, decision_brief = _ifr_concept()
     metar_table = metar_rows_html(metar)
+    day_rows = _taf_day_rows(taf, metar)
+    code_html = concept["code"].replace("\n", "<br>")
 
     sec_9_aviation = (
-        '<tr><td style="height:2px;background:#F5F5F7;"></td></tr>'
-        '<tr><td style="background:#fff;border:1px solid #E5E5EA;padding:28px 28px 24px;">'
-        '<table cellpadding="0" cellspacing="0" style="margin-bottom:18px;"><tr>'
-        '<td style="font-family:Georgia,serif;font-size:56px;font-weight:900;color:#007AFF;line-height:1;padding-right:12px;vertical-align:middle;">09</td>'
-        '<td style="vertical-align:middle;border-left:2px solid #007AFF;padding-left:10px;">'
-        '<div style="font-family:Arial,sans-serif;font-size:8px;font-weight:700;letter-spacing:0.2em;text-transform:uppercase;color:#007AFF;">Aviation · IFR Track</div>'
-        '</td></tr></table>'
-        '<table width="100%" cellpadding="0" cellspacing="0"><tr>'
-        '<td width="50%" valign="top" style="padding-right:16px;">'
-        '<div style="font-family:Arial,sans-serif;font-size:8px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:#007AFF;margin-bottom:10px;">Go / No-Go (KFLL TAF)</div>'
-        '<table width="100%" cellpadding="0" cellspacing="0">'
-        '<tr><td style="padding:8px 0;border-bottom:1px solid #E5E5EA;">'
-        '<div style="font-family:\'Courier New\',monospace;font-size:8px;color:#8A8A8E;margin-bottom:2px;">NEXT 12 HOURS</div>'
-        + go_nogo_html +
-        '</td></tr></table>'
-        '<div style="margin-top:12px;font-family:Arial,sans-serif;font-size:8px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:#007AFF;margin-bottom:10px;">METAR</div>'
-        '<table cellpadding="0" cellspacing="0">' + metar_table + '</table>'
-        '</td>'
-        '<td width="50%" valign="top" style="padding-left:16px;border-left:1px solid #E5E5EA;">'
-        '<div style="font-family:Arial,sans-serif;font-size:8px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:#007AFF;margin-bottom:10px;">Alternate Minimums</div>'
-        '<table cellpadding="0" cellspacing="0" width="100%">'
-        '<tr><td style="font-family:\'Courier New\',monospace;font-size:12px;font-weight:700;color:#1D1D1F;padding:5px 14px 5px 0;">KFLL</td><td style="font-family:\'Courier New\',monospace;font-size:11px;color:#8A8A8E;">600-2</td></tr>'
-        '<tr><td style="font-family:\'Courier New\',monospace;font-size:12px;font-weight:700;color:#1D1D1F;padding:5px 14px 5px 0;">KPMP</td><td style="font-family:\'Courier New\',monospace;font-size:11px;color:#8A8A8E;">800-2</td></tr>'
-        '<tr><td style="font-family:\'Courier New\',monospace;font-size:12px;font-weight:700;color:#1D1D1F;padding:5px 14px 5px 0;">KFXE</td><td style="font-family:\'Courier New\',monospace;font-size:11px;color:#8A8A8E;">900-2</td></tr>'
-        '</table>'
-        '</td></tr></table>'
-        '</td></tr>'
+        "<tr><td style=\"height:2px;background:#F5F5F7;\"></td></tr>"
+        "<tr><td style=\"background:#fff;border:1px solid #E5E5EA;padding:28px 28px 24px;\">"
+        "<table cellpadding=\"0\" cellspacing=\"0\" style=\"margin-bottom:18px;\"><tr>"
+        "<td style=\"font-family:Georgia,serif;font-size:56px;font-weight:900;color:#007AFF;line-height:1;padding-right:12px;vertical-align:middle;\">09</td>"
+        "<td style=\"vertical-align:middle;border-left:2px solid #007AFF;padding-left:10px;\">"
+        "<div style=\"font-family:Arial,sans-serif;font-size:8px;font-weight:700;letter-spacing:0.2em;text-transform:uppercase;color:#007AFF;\">Aviation &nbsp;·&nbsp; IFR Certification Track &nbsp;·&nbsp; KFLL &nbsp;·&nbsp; KFXE &nbsp;·&nbsp; KPMP</div>"
+        "</td></tr></table>"
+        "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr>"
+        # LEFT column
+        "<td width=\"48%\" valign=\"top\" style=\"padding-right:16px;\">"
+        "<div style=\"font-family:Arial,sans-serif;font-size:8px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:#1D1D1F;margin-bottom:10px;\">KFLL / KFXE — Go/No-Go Analysis</div>"
+        "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"border:1px solid #E5E5EA;border-radius:8px;overflow:hidden;\">"
+        + day_rows +
+        "</table>"
+        "<div style=\"margin-top:14px;background:#FFFBE6;border:1px solid #FFD60A;border-radius:6px;padding:10px 12px;\">"
+        "<div style=\"font-family:Arial,sans-serif;font-size:10px;font-weight:700;color:#1D1D1F;margin-bottom:4px;\">Decision brief:</div>"
+        "<div style=\"font-family:Arial,sans-serif;font-size:10px;color:#3A3A3C;line-height:1.5;\">" + decision_brief + "</div>"
+        "</div>"
+        "<div style=\"margin-top:14px;font-family:Arial,sans-serif;font-size:8px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:#007AFF;margin-bottom:8px;\">METAR</div>"
+        "<table cellpadding=\"0\" cellspacing=\"0\">" + metar_table + "</table>"
+        "</td>"
+        # RIGHT column
+        "<td width=\"52%\" valign=\"top\" style=\"padding-left:16px;border-left:1px solid #E5E5EA;\">"
+        "<div style=\"font-family:Georgia,serif;font-size:17px;font-weight:700;color:#1D1D1F;line-height:1.3;margin-bottom:12px;\">" + concept["title"] + "</div>"
+        "<div style=\"font-family:Arial,sans-serif;font-size:12px;color:#3A3A3C;line-height:1.7;margin-bottom:14px;\">" + concept["body"] + "</div>"
+        "<div style=\"background:#1D1D1F;border-radius:6px;padding:12px 14px;\">"
+        "<div style=\"font-family:monospace;font-size:10px;color:#34C759;line-height:1.8;\">" + code_html + "</div>"
+        "</div>"
+        "</td>"
+        "</tr></table>"
+        "</td></tr>"
     )
 
     # ── ASSEMBLE FULL HTML ───────────────────────────────────────────────
